@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_NAME=$(basename "$0")
+
+function usage()
+{
+    cat <<EOF
+${SCRIPT_NAME}: Generate coverage using grcov.
+
+Usage:
+  with_coverage [opts] <command> [args...] : Run <command> with [args].
+  with_coverage -i [opts]                  : Run bash interactively.
+
+Options:
+  -h: Print this message.
+  -i: Run an interactive shell after the command (if any)
+  -c: Continue using data from previous runs. (By default, data is deleted.)
+  -s: Skip generating a final report.
+  -f <format>: format to use when generating coverage report. Defaults to html.
+               See "grcov --help" for a full list of supported formats.
+  -o <path>: set the output path for the coverage report (default "coverage")
+
+Notes:
+  You need to have grcov and llvm-tools installed.
+EOF
+}
+
+interactive=no
+remove_data=yes
+skip_report=no
+format=html
+output=coverage
+
+while getopts "chisf:o:" opt ; do
+    case "$opt" in
+	c) remove_data=no
+	   ;;
+	h) usage
+	   exit 0
+	   ;;
+	i) interactive=yes
+	   ;;
+	s) skip_report=yes
+	   ;;
+	f) format="$OPTARG"
+	   ;;
+	o) output="$OPTARG"
+	   ;;
+	*) echo "Unknown option."
+	   exit 1
+	   ;;
+    esac
+done
+
+# Remove the flags we parsed.
+shift $((OPTIND-1))
+
+# Make sure that we'll be doing _something_.
+if [ $# -eq 0 ] && [ $interactive = "no" ]; then
+    echo "No command specified: Use the -i flag if you want a shell."
+    echo
+    echo "Run ${SCRIPT_NAME} -h for help."
+    exit 1
+fi
+default_toolchain=$(rustup show active-toolchain | cut -d' ' -f1)
+echo "Using toolchain +${RUST_COVERAGE_TOOLCHAIN:=${default_toolchain}}. (Override with \$RUST_COVERAGE_TOOLCHAIN)"
+
+# Validate that "+${RUST_COVERAGE_TOOLCHAIN}" is installed.  This will log a message to stderr
+# if it isn't.
+cargo "+${RUST_COVERAGE_TOOLCHAIN}" -h >/dev/null
+
+# Validate that grcov is installed.
+if [ "$(command -v grcov 2>/dev/null)" = "" ]; then
+    echo "grcov appears not to be installed.  Try 'cargo install grcov'." >&2
+    exit 1
+fi
+
+# Validate that llvm-tools is installed.
+if [ "$(rustup "+${RUST_COVERAGE_TOOLCHAIN}" component list --installed | grep llvm-tools)" = "" ]; then
+   echo "llvm-tools appears not to be installed. Try 'rustup +${RUST_COVERAGE_TOOLCHAIN} component add llvm-tools'." >&2
+   exit 1
+fi
+
+COVERAGE_BASEDIR=$(git rev-parse --show-toplevel)
+export RUSTFLAGS="-C instrument-coverage"
+export LLVM_PROFILE_FILE=$COVERAGE_BASEDIR/coverage_meta/%p-%m.profraw
+export RUSTUP_TOOLCHAIN="${RUST_COVERAGE_TOOLCHAIN}"
+
+# Using :? here to ensure that the script exits the path would
+# otherwise be /
+if [ -d "${COVERAGE_BASEDIR:?}/${output:?}" ]; then
+    rm -r "${COVERAGE_BASEDIR:?}/${output:?}" || true
+fi
+if [ -d "$COVERAGE_BASEDIR/coverage_meta" ] && [ "$remove_data" = "yes" ]; then
+    echo "Removing data from previous runs. (Use -c to suppress this behavior.)"
+    rm -r "$COVERAGE_BASEDIR/coverage_meta" || true
+fi
+
+mkdir -p "$COVERAGE_BASEDIR/coverage_meta"
+
+if [ ! -e "$COVERAGE_BASEDIR/coverage_meta/commands" ] ; then
+    echo "REVISION: $(git rev-parse HEAD) $(git diff --quiet || echo "[dirty]")" >  "$COVERAGE_BASEDIR/coverage_meta/commands"
+fi
+
+if [ $# -ne 0 ]; then
+    echo "$@" >> "$COVERAGE_BASEDIR/coverage_meta/commands"
+    "$@"
+fi
+
+if [ $interactive = "yes" ] ; then
+    echo "Launching a bash shell."
+    echo "Exit this shell when you are ready to genate a coverage report."
+    echo "# BASH SHELL" >> "$COVERAGE_BASEDIR/coverage_meta/commands"
+    # when run interactivelly, don't die on error
+    bash || true
+fi
+
+if [ "$skip_report" = "yes" ]; then
+    exit 0
+fi
+
+echo "Generating report..."
+
+grcov "$COVERAGE_BASEDIR/coverage_meta" \
+	--binary-path "$COVERAGE_BASEDIR/target/debug/" \
+	-s "$COVERAGE_BASEDIR/" \
+	-o "$COVERAGE_BASEDIR/$output" \
+	-t "$format" \
+	--branch \
+	--ignore-not-existing \
+	--excl-start '^(pub(\((crate|super)\))? )?mod test' \
+	--excl-stop '^}' \
+	--ignore="*/tests/*" \
+	--ignore="*/examples/*" \
+	--ignore="examples/*" \
+	--ignore="maint/*" \
+	--ignore="*/fuzz/*" \
+	--ignore="crates/arti-bench/*" \
+	--ignore="crates/arti-testing/*" \
+	--ignore="*/github.com-1ecc6299db9ec823/*"
+
+if [ "$format" == cobertura ]; then
+	python3 "$COVERAGE_BASEDIR/maint/postprocess_coverage_cobertura" "$COVERAGE_BASEDIR/$output"
+	echo "Full report: $COVERAGE_BASEDIR/$output"
+	exit
+elif [ "$format" != html ]; then
+	# no html post processing when outputting non html result
+	echo "Full report: $COVERAGE_BASEDIR/$output"
+	exit
+fi
+
+cp "$COVERAGE_BASEDIR/$output/index.html" "$COVERAGE_BASEDIR/$output/index_orig.html"
+
+if [ "$(command -v python3 2>/dev/null)" = "" ]; then
+    echo "python3 not installed; not post-processing the index file."
+else
+    echo "Postprocessing..."
+    python3 "$COVERAGE_BASEDIR/maint/postprocess_coverage_html" "$COVERAGE_BASEDIR/coverage_meta/commands" "$COVERAGE_BASEDIR/$output/index.html" "$COVERAGE_BASEDIR/$output/index.html"
+fi
+
+echo "Full report: $COVERAGE_BASEDIR/$output/index.html"

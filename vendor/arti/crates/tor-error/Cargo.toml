@@ -1,0 +1,47 @@
+[package]
+name = "tor-error"
+version = "0.36.0"
+authors = ["Ian Jackson <iwj@torproject.org>"]
+edition = "2024"
+rust-version = "1.86"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "Provides the unified type-erased error type returned by many (esp. high-level) Tor APIs."
+keywords = ["tor", "arti"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+categories = ["rust-patterns"]
+
+[features]
+default = ["backtrace", "futures"]
+full = ["backtrace", "futures", "tracing", "http", "retry-error/full"]
+
+experimental = ["experimental-api", "rpc"]
+experimental-api = ["rpc", "__is_experimental"]
+
+rpc = ["__is_experimental"]
+
+tracing = ["dep:tracing", "static_assertions"]
+
+__is_experimental = []
+
+backtrace = []
+http = ["dep:http"]
+
+[dependencies]
+derive_more = { version = "2.0.1", features = ["full"] }
+futures = { version = "0.3", optional = true }
+http = { version = "1.3.1", optional = true }
+paste = "1"
+retry-error = { path = "../retry-error", version = "0.9.0" } # WRONG should be 0.4.3
+static_assertions = { version = "1", optional = true }
+strum = { version = "0.27.1", features = ["derive"] }
+thiserror = "2"
+tracing = { version = "0.1.36", optional = true }
+void = "1"
+
+[dev-dependencies]
+anyhow = "1.0.72"
+tracing-test = "0.2.4"
+
+[package.metadata.docs.rs]
+all-features = true

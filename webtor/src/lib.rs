@@ -12,6 +12,7 @@ pub mod http;
 pub mod relay;
 pub mod snowflake;
 pub mod websocket;
+pub mod wasm_runtime;
 
 pub use client::TorClient;
 pub use config::TorClientOptions;
@@ -19,4 +20,4 @@ pub use error::{TorError, Result};
 
 // Re-export commonly used types
 pub use url::Url;
-pub use reqwest::Response;
+pub use http::HttpResponse;

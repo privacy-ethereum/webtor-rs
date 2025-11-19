@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+#
+# This script runs as the top level of our reproducible build process.
+# It launches the actual build script inside a docker container.
+
+set -euo pipefail
+
+## use a fixed image to not suffer from image retaging when newer rustc or
+## alpine emerges. Increase shm size for the reasons described in
+## reproducible_build
+##
+## If you change this image, make sure also to change the one listed in
+## the build-repro job in .gitlab-ci.yml
+CONTAINER=rust:1.91.0-alpine3.22
+if [ "$1" = "android" ]; then
+
+  if ! docker image inspect arti/docker-android > /dev/null ; then
+    echo "Error: docker container arti/docker-android doesn't seem to be available"
+    echo "please generate the container with:"
+    echo "  cd maint/docker-android"
+    echo "  docker build . -t arti/docker-android"
+    exit 1
+  fi;
+  CONTAINER=arti/docker-android
+fi
+echo $CONTAINER
+
+exec docker run --rm -i -v "$(git rev-parse --show-toplevel)":/builds/arti \
+		-w /builds/arti $CONTAINER \
+		sh -c "apk add bash && ./maint/reproducible_build $*"

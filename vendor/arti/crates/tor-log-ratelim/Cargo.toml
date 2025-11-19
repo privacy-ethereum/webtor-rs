@@ -1,0 +1,29 @@
+[package]
+name = "tor-log-ratelim"
+version = "0.36.0"
+authors = ["The Tor Project, Inc."]
+edition = "2024"
+rust-version = "1.86"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "Facility for rate-limiting log messages in Arti"
+keywords = ["tor", "arti", "async"]
+categories = ["asynchronous"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+
+[features]
+
+default = []
+full = ["tor-error/full", "tor-rtcompat/full"]
+
+[dependencies]
+
+futures = "0.3.14"
+humantime = "2"
+thiserror = "2"
+tor-error = { path = "../tor-error", version = "0.36.0" }
+tor-rtcompat = { path = "../tor-rtcompat", version = "0.36.0" }
+tracing = "0.1.36"
+weak-table = "0.3.0"
+
+[dev-dependencies]

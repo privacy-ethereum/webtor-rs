@@ -1,0 +1,237 @@
+[package]
+name = "arti-client"
+version = "0.36.0"
+authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
+edition = "2024"
+rust-version = "1.86"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "Library for connecting to the Tor network as an anonymous client"
+keywords = ["tor", "arti", "privacy", "anonymity", "networking"]
+categories = ["network-programming", "cryptography"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+#
+# examples call TorClient::create_bootstrapped which needs PreferredRuntime
+# @@ test-all-crates conditional-option minimal --features=tokio,native-tls
+
+[features]
+default = ["tokio", "native-tls", "compression"]
+full = [
+    "anyhow",
+    "keymgr",
+    "onion-service-client",
+    "onion-service-service",
+    "vanguards",
+    "tokio",
+    "async-std",
+    "memquota",
+    "native-tls",
+    "compression",
+    "bridge-client",
+    "pt-client",
+    "rpc",
+    "tor-rtcompat/full",
+    "tor-proto/full",
+    "tor-netdoc/full",
+    "tor-dirmgr/full",
+    "fs-mistrust/full",
+    "safelog/full",
+    "tor-async-utils/full",
+    "tor-basic-utils/full",
+    "tor-chanmgr/full",
+    "tor-circmgr/full",
+    "tor-config/full",
+    "tor-error/full",
+    "tor-guardmgr/full",
+    "tor-hsclient?/full",
+    "tor-hscrypto?/full",
+    "tor-llcrypto/full",
+    "tor-netdir/full",
+    "tor-persist/full",
+    "tor-ptmgr?/full",
+    "tor-rpcbase?/full",
+    "tor-keymgr/full",
+    "tor-linkspec/full",
+    "tor-geoip?/full",
+    "tor-hsservice?/full",
+    "tor-memquota/full",
+    "tor-config-path/full",
+    "tor-protover/full",
+    "tor-dircommon/full",
+] # "full" is a top-level selector that turns on every feature, _EXCEPT FOR_:
+#   * Features that are experimental or unstable
+#   * Features that are testing-only
+#   * Features which are select a particular implementation or build flag and
+#     which therefore are not strictly additive.
+#   * Features which may introduce unnecessary licensing restrictions.
+
+async-std = ["tor-rtcompat/async-std"]
+smol = ["tor-rtcompat/smol", "__is_experimental"]
+bridge-client = ["tor-guardmgr/bridge-client", "tor-dirmgr/bridge-client"]
+# the "memquota" feature is now a no-op as the functionality is always-enabled,
+# but the feature is kept for backwards compatibility
+# https://gitlab.torproject.org/tpo/core/arti/-/issues/2030
+memquota = []
+tokio = ["tor-rtcompat/tokio", "tor-proto/tokio"]
+native-tls = ["tor-rtcompat/native-tls"]
+pt-client = [
+    "bridge-client",
+    "tor-chanmgr/pt-client",
+    "tor-guardmgr/pt-client",
+    "tor-ptmgr",
+]
+
+# Onion service proof of work schemes (specific schemes, full set, default set)
+hs-pow-full = [
+    "tor-hsclient?/hs-pow-full",
+    "tor-hsservice?/hs-pow-full",
+    "__is_experimental",
+]
+
+# Expose interfaces useful for testing
+testing = ["__is_experimental", "visibility"]
+
+# This is not nonadditive from a software POV, but we mark it as such because it
+# includes code licensed under the old OpenSSL license (which was 4-clause BSD),
+# which in turn introduces a GPL-incompatibility.
+rustls = ["tor-rtcompat/rustls", "__is_nonadditive"]
+
+# depends directly on tor-rtcompat/static so native-tls doesn't get automatically included
+static = ["static-sqlite", "tor-rtcompat/static", "__is_nonadditive"]
+static-sqlite = ["tor-dirmgr/static", "__is_nonadditive"]
+static-native-tls = ["tor-rtcompat/static", "native-tls", "__is_nonadditive"]
+
+accel-sha1-asm = ["tor-llcrypto/with-sha1-asm", "__is_nonadditive"]
+accel-openssl = ["tor-llcrypto/with-openssl", "__is_nonadditive"]
+
+onion-service-client = ["tor-hsclient", "tor-hscrypto"]
+
+onion-service-cli-extra = ["tor-keymgr/onion-service-cli-extra", "__is_experimental"]
+onion-service-service = ["tor-hsservice", "tor-hscrypto", "tor-persist/state-dir", "keymgr"]
+keymgr = ["tor-keymgr/keymgr", "tor-hsclient/keymgr"]
+vanguards = ["tor-guardmgr/vanguards", "tor-circmgr/vanguards"]
+
+rpc = ["dyn-clone", "tor-rpcbase"]
+
+__is_nonadditive = []
+
+compression = ["tor-dirmgr/compression"]
+
+experimental = [
+    "dirfilter",
+    "ephemeral-keystore",
+    "ctor-keystore",
+    "experimental-api",
+    "error_detail",
+    "geoip",
+    "hs-pow-full",
+    "testing",
+    "tor-proto/experimental",
+    "tor-netdoc/experimental",
+    "tor-dirmgr/experimental",
+    "tor-circmgr/experimental",
+    "tor-config/experimental",
+    "tor-guardmgr/experimental",
+    "tor-hsservice/experimental",
+    "tor-keymgr/experimental",
+    "restricted-discovery",
+    "onion-service-cli-extra",
+    "flowctl-cc",
+    "counter-galois-onion",
+    "smol",
+]
+
+# Enable experimental APIs that are not yet officially supported.
+#
+# These APIs are not covered by semantic versioning.  Using this
+# feature voids your "semver warrantee".
+experimental-api = ["__is_experimental"]
+dirfilter = ["tor-dirmgr/dirfilter", "__is_experimental"]
+ephemeral-keystore = ["tor-keymgr/ephemeral-keystore", "__is_experimental"]
+ctor-keystore = ["tor-keymgr/ctor-keystore", "__is_experimental"]
+error_detail = ["__is_experimental"]
+geoip = ["tor-circmgr/geoip", "tor-dirmgr/geoip", "tor-geoip", "__is_experimental"]
+flowctl-cc = ["tor-circmgr/flowctl-cc", "__is_experimental"]
+counter-galois-onion = ["tor-proto/counter-galois-onion", "flowctl-cc", "__is_experimental"]
+
+restricted-discovery = [
+    "onion-service-service",
+    "tor-hsservice/restricted-discovery",
+    "__is_experimental",
+]
+__is_experimental = []
+
+[dependencies]
+anyhow = { version = "1.0.23", optional = true }
+async-trait = "0.1.54"
+cfg-if = "1.0.0"
+derive-deftly = { version = "~1.5.0", features = ["full", "beta"] }
+derive_builder = { version = "0.11.2", package = "derive_builder_fork_arti" }
+derive_more = { version = "2.0.1", features = ["full"] }
+dyn-clone = { version = "1.0.11", optional = true }
+educe = "0.4.22"
+fs-mistrust = { path = "../fs-mistrust", version = "0.13.0", features = ["serde"] }
+futures = "0.3.14"
+hostname-validator = "1.1.1"
+humantime = "2"
+humantime-serde = "1.1.1"
+libc = "0.2"
+once_cell = "1.9"
+postage = { version = "0.5.0", default-features = false, features = ["futures-traits"] }
+rand = "0.9.1"
+safelog = { path = "../safelog", version = "0.7.0" }
+serde = { version = "1.0.103", features = ["derive"] }
+thiserror = "2"
+time = { version = "0.3.20", features = ["parsing", "macros"] }
+tor-async-utils = { path = "../tor-async-utils", version = "0.36.0" }
+tor-basic-utils = { path = "../tor-basic-utils", version = "0.36.0" }
+tor-chanmgr = { path = "../tor-chanmgr", version = "0.36.0" }
+tor-circmgr = { path = "../tor-circmgr", version = "0.36.0" }
+tor-config = { path = "../tor-config", version = "0.36.0" }
+tor-config-path = { path = "../tor-config-path", version = "0.36.0", features = ["arti-client"] }
+tor-dircommon = { path = "../tor-dircommon", version = "0.36.0" }
+tor-dirmgr = { path = "../tor-dirmgr", version = "0.36.0", default-features = false, features = ["mmap"] }
+tor-error = { path = "../tor-error", version = "0.36.0", features = ["tracing"] }
+tor-geoip = { path = "../tor-geoip", version = "0.36.0", optional = true }
+tor-guardmgr = { path = "../tor-guardmgr", version = "0.36.0" }
+tor-hsclient = { path = "../tor-hsclient", version = "0.36.0", optional = true }
+tor-hscrypto = { path = "../tor-hscrypto", version = "0.36.0", optional = true }
+tor-hsservice = { path = "../tor-hsservice", version = "0.36.0", optional = true }
+tor-keymgr = { path = "../tor-keymgr", version = "0.36.0", default-features = false }
+tor-linkspec = { path = "../tor-linkspec", version = "0.36.0" }
+tor-llcrypto = { path = "../tor-llcrypto", version = "0.36.0" }
+tor-memquota = { path = "../tor-memquota", version = "0.36.0" }
+tor-netdir = { path = "../tor-netdir", version = "0.36.0" }
+tor-netdoc = { path = "../tor-netdoc", version = "0.36.0" }
+tor-persist = { path = "../tor-persist", version = "0.36.0" }
+tor-proto = { path = "../tor-proto", version = "0.36.0" }
+tor-protover = { path = "../tor-protover", version = "0.36.0" }
+tor-ptmgr = { path = "../tor-ptmgr", version = "0.36.0", optional = true }
+tor-rpcbase = { path = "../tor-rpcbase", version = "0.36.0", optional = true }
+tor-rtcompat = { path = "../tor-rtcompat", version = "0.36.0" }
+tracing = "0.1.36"
+visibility = { version = "0.1.0", optional = true }
+void = "1"
+
+[dev-dependencies]
+anyhow = "1.0.23"
+rand = "0.9.1"
+serde_json = "1.0.104"
+strum = { version = "0.27.1", features = ["derive"] }
+tempfile = "3.3"
+tokio-crate = { package = "tokio", version = "1.7", features = [
+    "rt",
+    "rt-multi-thread",
+    "io-util",
+    "net",
+    "time",
+    "macros",
+] }
+toml = "0.9.5"
+tor-relay-selection = { path = "../tor-relay-selection", version = "0.36.0" }
+tor-rtcompat = { path = "../tor-rtcompat", version = "0.36.0", features = ["tokio", "native-tls"] }
+tracing-subscriber = "0.3.20"
+tracing-test = "0.2.4"
+
+[package.metadata.docs.rs]
+all-features = true

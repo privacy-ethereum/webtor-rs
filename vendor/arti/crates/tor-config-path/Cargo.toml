@@ -1,0 +1,60 @@
+[package]
+name = "tor-config-path"
+version = "0.36.0"
+authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
+edition = "2024"
+rust-version = "1.86"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "Low-level file path handling for configuration of the Arti Tor implementation"
+keywords = ["tor", "arti"]
+categories = ["config"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+
+[features]
+default = ["expand-paths", "address"]
+
+full = [
+    "address",
+    "arti-client",
+    "expand-paths",
+    "tor-error/full",
+    "tor-general-addr?/full",
+]
+
+arti-client = ["expand-paths"]
+expand-paths = ["shellexpand", "directories"]
+address = ["tor-general-addr"]
+
+experimental = ["testing", "experimental-api"]
+# Enable experimental APIs that are not yet officially supported.
+#
+# These APIs are not covered by semantic versioning.  Using this
+# feature voids your "semver warrantee".
+experimental-api = ["__is_experimental"]
+
+# Enable testing-only APIs.  APIs under this feature are not
+# covered by semver.
+testing = ["__is_experimental"]
+
+__is_experimental = []
+
+[dependencies]
+directories = { version = "6", optional = true }
+serde = { version = "1.0.103", features = ["derive"] }
+shellexpand = { version = "3.0", optional = true, features = ["path"] }
+thiserror = "2"
+tor-error = { path = "../tor-error", version = "0.36.0" }
+tor-general-addr = { path = "../tor-general-addr", version = "0.36.0", optional = true }
+
+[dev-dependencies]
+assert_matches = "1.5.0"
+derive_builder = { version = "0.11.2", package = "derive_builder_fork_arti" }
+dirs = "6.0.0"
+rmp-serde = "1"
+serde_json = "1.0.50"
+toml = "0.9.5"
+tor-config = { path = "../tor-config", version = "0.36.0" }
+
+[package.metadata.docs.rs]
+all-features = true

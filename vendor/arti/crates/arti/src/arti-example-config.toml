@@ -1,0 +1,727 @@
+# (Built-in defaults for the arti configuration format.)
+# (This is an example file you can use as a template or as documentation.)
+
+# Rules about how arti should behave as an application
+[application]
+# If true, we should watch our configuration files for changes.
+#
+# (Note that this feature may misbehave if you change symlinks in the
+# paths to the directory holding the configuration files, if you
+# remove and recreate those directories, or if those directories
+# change for some other reason.)
+#
+# **Warning**: on platforms other than Windows, Linux, and Android,
+# the files are watched using a polling watcher,
+# which introduces a perceivable delay in configuration reloading,
+# and can be very expensive for large file trees.
+# This is due to a limitation in our file watching code,
+# which we hope to lift someday.
+#watch_configuration = false
+
+# If true, we should allow other processes run by the same user to inspect this
+# process's memory.
+#
+# (By default, assuming arti has been built with the `harden` feature flag, we
+# take what step we can, including disabling core dumps, to keep its memory and
+# state secret from other processes.)
+#
+#permit_debugging = false
+
+# If true, then we allow Arti to start even if the current user is root.
+#
+# (By default, we exit if we are running as root, since this is usually a
+# mistake.)
+#allow_running_as_root = false
+
+# Set up the Arti program to run as a proxy.
+[proxy]
+# Default port to use when listening to SOCKS connections.  We always
+# listen on localhost.
+#
+# Note that only one process can listen on a given port at a time.
+#socks_listen = 9150
+
+# Port to use to listen for DNS requests.  0 means disabled.
+#dns_listen = 0
+
+# Configure logging
+[logging]
+
+# Specify filtering directives for sending trace messages to the console
+# (via stderr).
+#
+# It can be as simple as a single loglevel, or as complicated as a
+# list with per-module settings.
+#
+# You can override this setting with the -l, --log-level command-line option.
+#
+# Example:
+#     trace_filter = "info,tor_proto::channel=trace"
+#
+# For more information, see https://docs.rs/tracing-subscriber/0.2.20/tracing_subscriber/filter/struct.EnvFilter.html
+#console = "info"
+
+# As above, but specify filtering directives for sending trace messages to
+# the journald logging system.  Empty string means not to use journald.
+#journald = ""
+
+# You can also configure one or more log files, with different filters, and optional
+# rotation.
+#
+# For example (not the default):
+#files = [
+#         {path = "~/logs/debug.log", filter="debug"},
+#         {path = "~/logs/trace.log", filter="trace", rotate="daily"},
+#]
+
+# Whether to log sensitive information (such as target hostnames and ip addresses)
+#
+# If set to `false` (the default), such information is not logged in messages of
+# level `info` or higher.
+#log_sensitive_information = false
+
+# The granularity with which to display times in our logs.
+#
+# When logging persistently, it can be risky to record very precise timing
+# information: if the logs are later exposed or compromised, they can help
+# traffic analysis attacks.
+#
+# To lower this risk, we support rounding the times in our logs, and displaying
+# them with less precision.  This option configures the maximum degree of
+# precision we'll use.  (We may use even a little less precision if you specify
+# an odd interval of time.)
+#
+# This option can't affect the granularity of times recorded by logging systems
+# outside of arti, including journald.
+#
+#time_granularity = "1s"
+
+# If the experimental `opentelemetry` feature is enabled, spans can be exported
+# to a HTTP(S) URL or to a JSON file in the https://opentelemetry.io format.
+#
+# Note that this information may be extremely sensitive. It is not recommended
+# to use this outside of development and debugging usecases.
+#
+# Only one of `file` or `http` may be specified, due to limitations in the
+# underlying tracing system.
+#
+# For example (not the default):
+#     opentelemetry.file = { path = "~/logs/otel.json" }
+#
+# You can also specify a `batch` option on both `file` and `http` exporters, to
+# configure how the writes are batched. The `http` exporter also supports
+# setting a timeout. If not set, these will all be left at the OpenTelemetry
+# defaults. For example (not the defaults):
+#
+#     opentelemetry.http = {endpoint = "http://localhost:4318/v1/traces", timeout = "15s", batch = { max_queue_size = 1024, max_export_batch_size = 256, scheduled_delay = "5s" } }
+
+
+# If the experimental `tokio-console` feature is enabled, and you set this option to "true",
+# arti can send trace information to tokio-console` for development and debugging purposes.
+#
+# To use this feature, you must make sure to build with `--cfg tokio_unstable`,
+# or the console subscriber will panic on startup.
+#
+# Note that this option publishes low-level details at a local address that tokio-console
+# can connect to, and may therefore be a security risk on some systems.
+# Don't enable it for production environments; use containers when possible.
+#
+#     tokio_console.enabled = false
+
+[metrics]
+
+# Arti can export metrics, offering a Prometheus scraper endpoint.
+# Usually only used when providing Tor Hidden Services (Onion Services).
+#
+# WARNING: exposing these metrics publicly is dangerous, and must be avoided.
+# Currently only plaintext HTTP is supported, either on a localhost IPv4 port,
+# or on a single other IPv4 or IPv6 address and port.
+# There is no access control beyond that implied by listening only on localhost.
+#
+# The set of metrics currently available is quite limited, and not stable.
+# We expect to extend it; MRs welcome.
+
+# This suggested port is the same as the example in the C Tor tor(1) manpage.
+# But note that the set of available metrics is quite different.
+#
+#    prometheus.listen = 9035
+
+# Locations to use for storing things on disk.
+#
+# These paths can use ~ to indicate the user's home directory, or a set
+# of shell-style variables to indicate platform-specific paths.
+#
+# Supported variables are ARTI_CACHE, ARTI_CONFIG, ARTI_SHARED_DATA,
+# ARTI_LOCAL_DATA, and USER_HOME.
+#
+# Multiple processes can share the same cache_dir.  If they do, one of them
+# will download directory information for all of the others.
+[storage]
+#cache_dir = "${ARTI_CACHE}"
+#state_dir = "${ARTI_LOCAL_DATA}"
+
+#[storage.keystore]
+# Whether the keystore is enabled.
+#
+# If the `keymgr` feature is enabled and this option is:
+#     * set to false, we will ignore the configured keystore path.
+#     * set to "auto", the configured keystore, or the default keystore, if the
+#     keystore path is not specified, will be used
+#     * set to true, the configured keystore, or the default keystore, if the
+#     keystore path is not specified, will be used
+#
+# If the `keymgr` feature is disabled and this option is:
+#     * set to false, we will ignore the configured keystore path.
+#     * set to "auto", we will ignore the configured keystore path.
+#
+# Setting this option to true when the `keymgr` feature is disabled is a
+# configuration error. Setting this option to false when `kind` is not `auto`
+# is a configuration error.
+#enabled = "auto"
+
+#[storage.keystore.primary]
+# The type of primary keystore to use, if any
+#
+# If the `keymgr` feature is enabled, this option can be set to
+#    * "auto", to use the default keystore (native)
+#    * "native", to use the native keystore
+#    * "ephemeral", to use the ephemeral keystore (only supported if the
+#    `ephemeral-keystore` feature is enabled)
+#
+# If the `keymgr` feature is not enabled, this option has no effect,
+# and can only be set to "auto".
+#
+# Setting this option to anything besides auto when the `keymgr`
+# feature is disabled is a configuration error.
+#kind = "auto"
+
+# Optionally configure C Tor keystores for arti to use.
+#
+# Note: The keystores listed here are read-only (keys are only
+# ever written to the primary keystore, configured in
+# `storage.keystore.primary`).
+#
+# Each C Tor keystore **must**:
+#
+#   * have a unique identifier. It is an error to configure multiple keystores
+#     with the same ID.
+#   * have a corresponding arti hidden service configured in the
+#   `[onion_services]` section with the same nickname
+#
+# For example:
+#
+# [storage.keystore.ctor.services."allium-cepa"]
+#
+# This should be set to the `HiddenServiceDirectory` of your hidden service.
+# Arti will read `HiddenServiceDirectory/hostname`
+# and `HiddenServiceDirectory/private_key`.
+# (Note: if your service is running in restricted discovery mode, you must also set the
+# `[[onion_services."<the nickname of your svc>".restricted_discovery.key_dirs]]`
+# to `HiddenServiceDirectory/client_keys`).
+# path = "/var/lib/tor/allium_cepa"
+#
+# The identifier of this keystore.
+# id = "foo"
+
+# [[storage.keystore.ctor.clients]]
+#
+# The identifier of this keystore.
+# id = "bar"
+#
+# This should be set to the `ClientOnionAuthDir` of your client.
+# If Arti is configured to run as a client (i.e. if it runs in SOCKS proxy mode),
+# it will read the client restricted discovery keys from this path.
+#
+# The key files are expected to have the `.auth_private` extension,
+# and their content **must** be of the form:
+# `<56-char-onion-addr-without-.onion-part>:descriptor:x25519:<x25519 private key in base32>`.
+#
+# Malformed files, and files that don't have the `.auth_private` extension, will be ignored.
+# path = "/var/lib/tor/onion_auth"
+
+# Describe how to enforce permissions on the filesystem when accessing the cache
+# and state directories.  (This does not apply to configuration files)
+[storage.permissions]
+# If set to true, we ignore all filesystem permissions.
+#dangerously_trust_everyone = false
+
+# What user (if any) is trusted to own files and directories?  ":current" means
+# to trust the current user.
+#trust_user = ":current"
+
+# What group (if any) is trusted to have read/write access to files and
+# directories?  ":selfnamed" means to trust the group with the same name as the
+# current user, if that user is a member.
+#trust_group = ":username"
+
+# If set, gives a path prefix that will always be trusted.  For example, if this
+# option is set to "/home/", and we are checking "/home/username/.cache", then
+# we always accept the permissions on "/" and "/home", but we check the
+# permissions on "/home/username" and "/home/username/.cache".
+#
+# (This is not the default.)
+#
+#     ignore_prefix = "/home/"
+#ignore_prefix = ""
+
+# Bridges (for anticensorship support)
+[bridges]
+
+# Should we use configured bridges?
+#     If set to false, we will ignore the configured bridges.
+#     If set to "auto", we will use any bridges that are configured.
+#     If set to true, bridges must be configured and will be used.
+#enabled = "auto"
+
+# What bridges (including pluggable transports) to use, in this syntax:
+#  bridges = [
+#      "<IP>:<ORPort> <fingerprint> [<fingerprint> ...]",
+#      "<transport> <host>:<ORPort>|- <fingerprint> [...] [<key>=<val> ...]",
+#  ]
+#
+# For example:
+#  bridges = [
+#      "192.0.2.83:80 $0bac39417268b96b9f514ef763fa6fba1a788956",
+#      "[2001:db8::3150]:8080 $0bac39417268b96b9f514e7f63fa6fb1aa788957",
+#      "obfs4 bridge.example.net:80 $0bac39417268b69b9f514e7f63fa6fba1a788958 ed25519:dGhpcyBpcyBbpmNyZWRpYmx5IHNpbGx5ISEhISEhISA iat-mode=1",
+#  ]
+#
+# You may specify all the bridge lines in one multi-line string:
+#  bridges = '''
+#  192.0.2.83:80 $0bac39417268b96b9f514ef763fa6fba1a788956
+#  [2001:db8::3150]:8080 $0bac39417268b96b9f514e7f63fa6fb1aa788957
+#  obfs4 bridge.example.net:80 $0bac39417268b69b9f514e7f63fa6fba1a788958 ed25519:dGhpcyBpcyBbpmNyZWRpYmx5IHNpbGx5ISEhISEhISA iat-mode=1
+#  '''
+#
+# (Note that these are just examples, not real bridges - they will not work.)
+#
+#bridges = []
+
+# An example managed pluggable transport binary.
+#    [[bridges.transports]]
+
+# Which pluggable transports does this binary provide?
+#    protocols = ["obfs4", "obfs5"]
+
+# Path to the binary to be run.
+#    path = "/usr/bin/obfsproxy"
+
+# Any command-line arguments to pass to the binary (empty if not specified).
+#    arguments = ["-obfs4", "-obfs5"]
+
+# Should we run this binary on startup? If false or unspecified, the binary will be
+# launched when we first attempt to use any of the transports it provides instead.
+#    run_on_startup = true
+
+# An example unmanaged pluggable transport.
+#    [[bridges.transports]]
+#
+# Which protocols does this transport provide?
+#    protocols = ["obfs4"]
+#
+# Where can we contact this transport?
+# (This should be a local SOCKS5 proxy address.)
+#    proxy_addr = "127.0.0.1:31337"
+
+# Replacement values for consensus parameters.  This is an advanced option
+# and you probably should leave it alone. Not all parameters are supported.
+# These are case-sensitive.
+#
+[override_net_params]
+# For example (not the defaults):
+#     circwindow = 1000
+#     min_paths_for_circs_pct = 60
+
+# Configuration for timing when and how often we should download directory
+# information.
+#
+# We use a randomized algorithm for determining when to retry. With
+# the various retry_* options, "num" is the number of downloads to
+# attempt, and "initial_delay" is a parameter determining both our
+# _first_ delay before we reattempt, and our _minimum_ delay for
+# subsequent attempts.
+[download_schedule]
+
+# How to retry our initial bootstrapping when we're trying to start up.
+#retry_bootstrap = { attempts = 128, initial_delay = "1 sec", parallelism = 1 }
+
+# How to retry a single consensus download.
+#retry_consensus = { attempts = 3, initial_delay = "1 sec", parallelism = 1 }
+
+# How to retry a set of authority certificate downloads.
+#retry_certs = { attempts = 3, initial_delay = "1 sec", parallelism = 1 }
+
+# How to retry a set of microdescriptor downloads.
+#retry_microdescs = { attempts = 3, initial_delay = "1 sec", parallelism = 4 }
+
+# Information about how premature or expired our directories are allowed to be.
+#
+# These options help us tolerate clock skew, and help survive the case where the
+# directory authorities are unable to reach consensus for a while.
+[directory_tolerance]
+# For how long before a directory document is valid should we accept it?
+#pre_valid_tolerance = "1 day"
+
+# For how long after a directory document is valid should we consider it usable?
+#post_valid_tolerance = "3 days"
+
+# Tells the circuit manager rule for constructing circuit paths
+[path_rules]
+
+# How far apart do relays need to be in IP-space before they can be
+# used in the same circuit?  For example, "ipv4_subnet_family_prefix=16"
+# means that two relays cannot appear in the same circuit if their
+# IPv4 addresses begin with the same 16 bits.
+#ipv4_subnet_family_prefix = 16
+#ipv6_subnet_family_prefix = 32
+
+# Which addresses are we willing to contact directly?
+#
+# This option can be used to specify a set of addresses or ports that are
+# permitted: typically, because a local firewall blocks everything else.  For
+# example, [ "*:80", "*:443"] would only try to connect to relays on the network
+# that support port 80 or port 443. You can use prefix lengths and port ranges,
+# too: "198.51.100.0/24:1-1024" is a valid pattern.
+#
+# By default, all addresses and ports are permitted.
+#reachable_addrs = [ "*:*" ]
+
+# Which target (exit) ports may require long-lived connections?
+#
+# When we connect to a port on this list, we only consider relays that have the
+# Stable flag, indicating that they have a relatively high time between circuit
+# failures.
+#long_lived_ports = [ 21, 22, 706, 1863, 5050, 5190, 5222, 5223, 6523, 6667, 6697, 8300 ]
+
+# Configure preemptive circuit construction.
+#
+# Preemptive circuits are built ahead of time, to anticipate client need. This
+# section configures the way in which this demand is anticipated and in which
+# these circuits are constructed.
+[preemptive_circuits]
+# If we have at least this many available circuits, we suspend
+# construction of preemptive circuits. whether our available circuits
+# support our predicted exit ports or not.
+#disable_at_threshold = 12
+
+# At startup, which exit ports should we expect that the client will want?
+#
+# (Over time, new ports are added to this list in response to what the client
+# has actually requested.)
+#initial_predicted_ports = [80, 443]
+
+# After we see the client request a connection to a new port, how long should we
+# predict that the client will still want to have circuits available for that
+# port?
+#prediction_lifetime = "1 hour"
+
+# How many available circuits should we try to have, at minimum, for each
+# predicted exit port?
+#min_exit_circs_for_port = 2
+
+# Configuration information about the Tor network itself
+[tor_network]
+# List of locations to look in when downloading directory information
+# we don't actually have a directory yet.
+#
+#   fallback_caches = [ <default list is compiled-in > ]
+
+# List of directory authorities which we expect to sign consensus documents and
+# to download directory information from, if we are a directory mirror.
+#
+#   authorities = [ <default list is compiled-in > ]
+
+# Channels and their behaviour
+[channel]
+
+# Should we use reduced channel padding?  (This roughly halves the padding
+# cell frequency, and makes the padding unidirectional, increasing the
+# traceability of the client connections.)
+# Or disable it entirely?
+#
+#padding = "normal"
+#   padding = "reduced"
+#   padding = "none"
+
+# Full manual control of the precise padding timing parameters is available
+# by setting `override_net_params.nf_ito_low` et al.
+# (See torpsec/padding-spec.txt section 3.4.)
+
+# Rules for how long circuits should survive, and how long pending
+# requests should wait for a circuit.
+[circuit_timing]
+
+# Once a circuit has been used for a weakly isolated request,
+# we stop giving it out for other requests after this time.
+#
+# (A request is weakly isolated if the application did not specify
+# an isolation string as part of the proxy handshake.)
+#max_dirtiness = "10 minutes"
+
+# If a circuit has only been used for strongly isolated requests,
+# we retain it until it has been idle for at least this long.
+#disused_circuit_timeout = "60 minutes"
+
+# When a circuit is requested, we keep trying to build circuits for up
+# to this long before the request gives up.
+#request_timeout = "60 sec"
+
+# When a circuit is requested, we make up to this many attempts to build
+# circuits for it before the request gives up.
+#request_max_retries = 16
+
+# If a circuit is finished that would satisfy a pending request, but the
+# request is still waiting for its own circuits to complete, the request
+# will wait this long before using the unexpectedly available circuit.
+#request_loyalty = "50 msec"
+
+# When we're trying to connect to a hidden service (.onion service),
+# how many attempts  will we make to (i) download the descriptor from the directories
+# (ii) conduct the introduction and rendezvous exchange, before giving up.
+#hs_desc_fetch_attempts = 6
+#hs_intro_rend_attempts = 6
+
+# Rules for which addresses a client is willing to try to connect to over
+# the tor network.
+[address_filter]
+
+# Should we allow attempts to make Tor connections to local addresses?
+#allow_local_addrs = false
+
+# Should Arti make connections to hidden services (.onion services) ?
+#allow_onion_addrs = true
+
+# Rules for how long streams should wait when connecting to host or performing a
+# DNS lookup.
+#
+# These timeouts measure the permitted time between sending a request on an
+# established circuit, and getting a response from the exit node.
+[stream_timeouts]
+
+# How long should we wait before timing out a stream when connecting to a host?
+#connect_timeout = "10 sec"
+
+# How long should we wait before timing out when resolving a DNS record?
+#resolve_timeout = "10 sec"
+
+# How long should we wait before timing out when resolving a DNS PTR record?
+#resolve_ptr_timeout = "10 sec"
+
+# Configuration for the system resources used by Arti.
+[system]
+
+# What is the maximum number of file descriptors which should be available
+# to Arti when we launch?
+#max_files = 16384
+
+## Are we limiting memory use, and if so to how much?
+
+# Maximum tracked memory use, after which reclamation starts.
+#
+# The default is "auto", which uses a value derived from the total system
+# memory. It should not be assumed that the value used for "auto" will remain
+# stable across different versions of arti. The value used for "auto" may also
+# take into account other OS-specific features, such as cgroups on Linux.
+#
+# Note that not all memory usage is tracked: Arti can actually
+# use more memory than is listed here for various kinds of overhead.
+#
+# If `system.memory.low_water` is given as an explicit value,
+# `system.memory.max` must also be given as an explicit value.
+#
+#    memory.max = "8 GiB"
+
+# Low-water mark for tracked memory:
+# When reclaiming memory, we stop when we reach this amount.
+#
+# The default is "auto", which uses 3/4 of `system.memory.max`. It should not be
+# assumed that the value used for "auto" will remain stable across different
+# versions of arti.
+#
+#    memory.low_water = "6 GiB"
+
+##### ONION SERVICES
+#
+# NOTE: Some of the security features needed for onion service privacy
+# are not yet implemented.  See
+# <https://gitlab.torproject.org/tpo/core/arti/-/blob/main/doc/OnionService.md>
+# for more information.
+#
+# Configuration for an onion service.  You can include multiple
+# `[onion_services]` sections in order to configure multiple onion services.
+#
+# The second part of this section's name ("allum-cepa") is a local nickname
+# for this onion service.
+#
+# This nickname is saved on disk, and used to tell onion services apart;
+# it is not visible outside your own Arti instance.
+#
+#    [onion_services."allium-cepa"]
+
+# Whether this service should be started. When this option is:
+#   * unset or set to true, the service will run with `arti proxy`.
+#   * set to false, the service will not run.
+#
+#    enabled = true
+
+# A description of what to do with incoming connections to different ports.
+# This is given as a list of rules; the first matching rule applies.
+#
+#    proxy_ports = [
+#        # Forward port 80 on the service to localhost:10080.
+#        ["80", "127.0.0.1:10080"],
+#        # Tear down the circuit on attempts to connect to port 22.
+#        ["22", "destroy"],
+#        # Ignore attempts to connect to port 265.
+#        # ("ignore" is not generally a good idea for an anonymous service;
+#        #  "destroy" is safer.)
+#        ["265", "ignore"],
+#        # Reject attempts to connect to port 443.
+#        ["443", "reject"],
+#        # Any other connection attempts will make us destroy the circuit.
+#        # (This is the default; you do not need to include this line.)
+#        ["*", "destroy"]
+#    ]
+
+# Number of introduction points to establish and advertise.
+#
+#    num_intro_points = 3
+
+# How many streams will we allow at a time for each circuit?
+#
+#    max_concurrent_streams_per_circuit = 65535
+
+# Whether to enable proof-of-work based DOS mitigation when under high load.
+#
+#    enable_pow = false
+
+# The maximum number of entries allowed in the rendezvous request queue when PoW is enabled.
+#
+# If you are seeing dropped requests, have a bursty traffic pattern, and have some memory to
+# spare, you may want to increase this. Each entry will take a few KB. If this is reduced at
+# runtime, it may prevent new requests from coming in until the queue is smaller than the new
+# size, but it will not drop existing requests that are in the queue.
+#
+#    pow_rend_queue_depth = 8192
+
+#    [onion_services."allium-cepa".restricted_discovery]
+# Whether to enable restricted discovery mode.
+#
+# Services running in restricted discovery mode are only discoverable
+# by the configured clients.
+#
+# Can only be enabled if the `restricted-discovery` feature is enabled.
+#
+# If you enable this, you must also specify the authorized clients (via `static_keys`),
+# or the directories where the authorized client keys should be read from (via `key_dirs`).
+#
+# Restricted discovery mode is disabled by default.
+#
+#    enabled = true
+
+#    [[onion_services."allium-cepa".restricted_discovery.key_dirs]]
+# Directories containing the client keys, each in the
+# `descriptor:x25519:<base32-encoded-x25519-public-key>` format.
+#
+# Each file in this directory must have a file name of the form `<nickname>.auth`,
+# where `<nickname>` is a valid client nickname.
+#
+#    path = "/var/lib/tor/hidden_service/authorized_clients"
+
+# A static mapping from client nicknames to keys.
+#
+# Each client key must be in the `descriptor:x25519:<base32-encoded-x25519-public-key>`
+# format.
+#
+#    [onion_services."allium-cepa".restricted_discovery.static_keys]
+#    alice = "descriptor:x25519:PU63REQUH4PP464E2Y7AVQ35HBB5DXDH5XEUVUNP3KCPNOXZGIBA"
+#    bob = "descriptor:x25519:B5ZQGTPERMMUDA6VC63LHJUF5IHPOKJMUK26LY2XKSF7VG52AESQ"
+
+##### RPC
+# Configuration options for the RPC subsystem.
+# The RPC subsystem allows other applications to access Arti, and control its behavior.
+# It is only available if Arti was built with RPC support.
+#
+#    [rpc]
+#
+# A boolean to determine whether Arti should accept RPC connections.
+#
+#    enable = false
+#
+# A set of default locations where Arti should listen for RPC connections,
+# if none were configured. You should typically not override this.
+# Use specific rpc.listen options instead.
+#
+#    # listen_default = [ <A list of platform-dependent default connect points, as strings> ]
+#
+# Instead, if you want to override the ways in which Arti listens for RPC connections,
+# you should declare one or more of these [rpc.listen] sections.
+# Each of them specifies a place where Arti will look for "connect files".
+# (These are JSON files that tell Arti where to listen for connections,
+# and tell applications how to connect to Arti.
+# For more information on their format, see the RPC documentation at
+# https://gitlab.torproject.org/tpo/core/arti/-/tree/main/doc/dev/rpc-book)
+#
+# The defaults are:
+#
+#    [rpc.listen."user-default"]
+#    enable = true
+#    dir = "${ARTI_LOCAL_DATA}/rpc/connect.d"
+#
+#    [rpc.listen."system-default"]
+#    enable = false
+#    dir = "/etc/arti-rpc/connect.d"
+#
+# Available options for configuring connect points are as follows.
+# Each listener section is introduced with a label. This can be an arbitrary identifier.
+#
+#       [rpc.listen."label"]
+#
+# A boolean to enable or disable the entire listener section. (Default is 'true')
+#
+#       enable = true
+#
+# A single connect file.
+#
+#       file = "${HOME}/.arti_connect.json"
+#
+# A directory to search for connect files.  Only filenames ending with ".json" are considered.
+# This option is mutually exclusive with "file".
+# Exactly one of "file" and "dir" must be set.
+#
+#       dir = "${HOME}/.my_connect_files/"
+#
+# A map from filenames within "dir" to options to set on those files.
+# Currently only "enable" is supported.
+#
+#       file_options = { "bad_file.json" = { enable = false }}
+
+[vanguards]
+# The kind of vanguard to use when building onion service circuits.
+#
+# If the `vanguards` feature is enabled and this option can be set to
+#    * "auto", to use the default setting (lite vanguards)
+#    * "full", to enable full vanguards
+#    * "lite", to enable lite vanguards
+#    * "disabled", to disable vanguards
+#
+# If the `vanguards` feature is not enabled, "auto" has the same effect as
+# "disabled".
+#
+# Setting this option to anything other than "auto" or "disabled" when
+# the `vanguards` feature is disabled is a configuration error.
+#mode = "auto"
+
+# Support for overriding Arti's behavior when a required or recommended protocol is missing.
+#
+# Ordinarily, Arti will exit when the consensus says that some protocol is required,
+# and Arti does not support that protocol.  You can override this behavior
+# by listing that protocol here.
+#
+# It is almost always better to upgrade Arti than to use this feature.
+#
+#[use_obsolete_software]
+#
+# A space-separated list of protocols. Protocols have names like "Cons=4" or "Relay=3".
+#
+#ignore_missing_required_protocols = ""

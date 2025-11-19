@@ -1,0 +1,7 @@
+# Config options appended to clippy.toml when we run Nightly clippy
+#
+# We must edit the tree, this way, sadly:
+#   https://github.com/rust-lang/rust-clippy/issues/8973
+
+# (currently we do not need tohave anything here; everything is dealt with
+# by suppressions maintained by maint/add_warning)

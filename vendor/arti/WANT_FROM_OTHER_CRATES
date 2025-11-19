@@ -1,0 +1,72 @@
+This is a list of things we found ourselves wanting while we were
+using other crates.
+
+Some of these are probably a great idea; some of them are probably
+not.  Step one for every one of these is to make sure that it really
+is a good idea.  If it is, then let's carefully figure out what we
+need, THEN see whether that maintainers of the crate in question are
+open to having a feature that accomplishes what we want, and THEN
+offer to build it for them, if we know how.
+
+
+==================================================
+
+rust itself:
+ * specialization.
+ * existential types.
+ * async functions in traits (without #[async_trait]).
+
+dalek-crypto:
+* Upgrade to latest version of rand crate.
+
+ed25519-dalek:
+* defer signature verification without prehash mode.
+  (I want a way, given a document D and a signature S, to construct
+  a small object representing (SHA(D), S) so that I can check that
+  signature later on without having to hold on to all of D.)
+  https://github.com/dalek-cryptography/ed25519-dalek/pull/186
+
+phf:
+* A much cheaper hash function.
+
+rsa: (see arti#146 for discussion)
+* get raw signed data, to allow multiple signed formats.
+  (Tor has some places in the specification where we say "a valid signature
+  is a signature whose signed data _begins with_ the SHA256 of the document",
+  to allow the possibility of adding a second hash to the future. But `rsa`
+  has no way to say "check this signature and its padding, then give me
+  the signed data.")
+
+crypto: (see arti#146 for discussion)
+* A key agreement trait, specifically for diffie-hellman operations.
+  (Or do they have one already?)
+
+ed25519 trait:
+* Batch signature verification support. (or do they have this already?)
+
+native-tls:
+* Support for RFC5705 exporters where available.
+
+webpki:
+* Support for cert without extensions and/or without alpn
+  https://github.com/briansmith/webpki/issues/219
+
+
+# Not actually using these crates:
+
+bitvec
+* more efficient bitwise operations.
+
+ring:
+* static curve25519
+
+pem: (see arti#146 for discussion)
+* should use multiline support, or at least not copy when decoding
+  base64 multiline.
+* should be stricter?
+
+
+tls-api:
+* Support for disabling certificate verification
+* Support for getting certificate (or does it have it?)
+* Support for RFC5705 exporters

@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+
+set -xeuo pipefail
+
+SCRIPT_NAME=$(basename "$0")
+
+function usage()
+{
+    cat <<EOF
+${SCRIPT_NAME}: Launch and validate a shadow simulation to test arti
+
+Usage:
+  ${SCRIPT_NAME} : Launch and  validate a shadow simulation
+
+Options:
+  -h: Print this message.
+  -s <seed>: Integer PRNG seed
+EOF
+}
+
+SEED=1
+while getopts "hs:" opt ; do
+    case "$opt" in
+	h) usage
+	   exit 0
+	   ;;
+	s) SEED="$OPTARG"
+	   ;;
+	*) echo "Unknown option. (Run $0 -h for usage)"
+	   exit 1
+	   ;;
+    esac
+done
+
+# Remove output of previous run
+rm -rf shadow.data
+
+export RUST_BACKTRACE=1
+
+# Fix permissions on hidden service dir to prevent tor from bailing.
+# TODO: isn't there a way to set the permissions in the git repo? Tried `git
+# update-index --chmod`, but it refuses to set permissions on a directory.
+chmod 700 shadow.data.template/hosts/fileserver-onion/hs
+chmod 700 shadow.data.template/hosts/fileserver-onion-auth/hs
+chmod 700 shadow.data.template/hosts/fileserver-onion-arti-auth/authorized_clients
+chmod 700 shadow.data.template/hosts/fileserver-onion-arti-auth-ctor/ctor-store
+chmod 700 shadow.data.template/hosts/articlient-onion-artiserver-auth-ctor/ctor-store
+
+# Run the simulation
+shadow \
+  --log-level=info \
+  --template-directory=./shadow.data.template \
+  --progress=true \
+  --use-memory-manager=false \
+  --use-worker-spinning=false \
+  --seed="$SEED" \
+  shadow.yaml \
+  > shadow.log
+
+# Look for any non-empty stderr files. In particular rust panics sometimes end
+# up showing up here (even though we try to log them properly).
+nonempty_stderr=$(find shadow.data/hosts/ -name '*.stderr' -size +0 -print -quit)
+if [ -n "$nonempty_stderr" ]; then
+  echo "Found non-empty stderr file $nonempty_stderr:"
+  cat "$nonempty_stderr"
+  exit 1
+fi
+
+# Look for errors in arti logs.
+# TODO: Maybe fail on warnings, too? There currently are a few, though.
+arti_errs=$(find shadow.data/hosts/ -name 'arti.log.txt' -exec grep --with-filename '\bERROR\b' \{\} \;)
+if [ -n "$arti_errs" ]; then
+  echo "Found arti errors:"
+  echo "$arti_errs"
+  exit 1
+fi
+
+check_host_xfers() {
+  hostname="$1"
+  min="$2"
+  total="$3"
+  successes="$(grep -c stream-success shadow.data/hosts/"$hostname"/tgen.*.stdout || true)"
+  echo "$hostname had $successes/$total successful streams (required at least $min)"
+  if [ "$successes" -ge "$min" ]
+  then
+    echo "^ PASS"
+  else
+    echo "^ FAIL"
+    exit 1
+  fi
+}
+
+# Check whether file transfers via arti inside the simulation succeeded
+check_host_xfers articlient 10 10
+check_host_xfers articlient-extra 10 10
+check_host_xfers articlient-bridge 10 10
+check_host_xfers articlient-bridge-obfs4 10 10
+# Onion-service transfers have tended to be a bit less reliable.
+# For a while we only required 1/10 to succeed. It looks like it's gotten better,
+# but still seeing some occasional failures so requiring 9/10 for now.
+# https://gitlab.torproject.org/tpo/core/arti/-/issues/2109
+check_host_xfers articlient-onion 9 10
+check_host_xfers articlient-onion-artiserver 9 10
+check_host_xfers articlient-onion-artiserver-full-vanguards 9 10
+check_host_xfers articlient-onion-artiserver-auth 9 10
+check_host_xfers articlient-onion-artiserver-auth-2 9 10
+check_host_xfers articlient-onion-artiserver-auth-ctor 9 10
+check_host_xfers torclient-onion-artiserver 9 10
+check_host_xfers torclient-onion-artiserver-full-vanguards 9 10
+# https://gitlab.torproject.org/tpo/core/arti/-/issues/1986
+check_host_xfers articlient-onion-auth 1 10
+
+HOSTS=(
+  articlient-onion
+  articlient-onion-auth
+  articlient-onion-artiserver
+  articlient-onion-artiserver-full-vanguards
+  articlient-onion-auth
+  articlient-onion-artiserver-auth-ctor
+  fileserver-onion-arti
+  fileserver-onion-arti-full-vanguards
+  fileserver-onion-arti-auth
+  fileserver-onion-arti-auth-ctor
+)
+
+for HOST in "${HOSTS[@]}"; do
+  # There should be only one such file per host.
+  file=(shadow.data/hosts/"$HOST"/arti.log.txt)
+  # TODO: this is a temporary measure until we implement other ways of testing
+  # that the circuits we've built have the desired properties.
+  bugs="$(grep -c Bug "${file[*]}" || true)"
+
+  if [ "$bugs" -eq 0 ]
+  then
+    echo "Simulation successful"
+  else
+    echo "Failed. Found $bugs internal errors in ${file[*]}."
+    exit 1
+  fi
+done
+
+pushd shadow.data/hosts/articlient-bridge/
+for PCAP in *.pcap; do
+	# verify all connection are either from/to the bridge, or local.
+	LEAK=$(tshark -r "$PCAP" 'ip.src != 100.0.0.2 && ip.dst != 100.0.0.2 && ip.dst != 127.0.0.0/8')
+	if [ "$LEAK" ]; then
+		echo "Found tcp leaks in PCAP: $PCAP"
+	        echo "$LEAK"
+		exit 1
+	fi
+done
+
+DNS_LEAK=$(grep -l shadow_hostname_to_addr_ipv4 arti.*.strace || true)
+if [ "$DNS_LEAK" ]; then
+	echo "Found DNS leaks in $DNS_LEAK"
+	exit 1
+fi
+popd

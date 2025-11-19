@@ -1,0 +1,46 @@
+[package]
+name = "tor-relay-selection"
+version = "0.36.0"
+authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
+edition = "2024"
+rust-version = "1.86"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "Logic to select Tor relays for specific purposes"
+keywords = ["tor", "arti"]
+categories = ["network-programming"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+
+[features]
+default = []
+full = [
+    "vanguards",
+    "tor-basic-utils/full",
+    "tor-geoip?/full",
+    "tor-linkspec/full",
+    "tor-netdir/full",
+    "tor-netdoc/full",
+]
+
+vanguards = []
+
+experimental = ["geoip"]
+geoip = ["tor-geoip", "tor-netdir/geoip", "__is_experimental"]
+__is_experimental = []
+
+[dependencies]
+rand = "0.9.1"
+serde = { version = "1.0.103", features = ["derive"] }
+tor-basic-utils = { path = "../tor-basic-utils", version = "0.36.0" }
+tor-geoip = { path = "../tor-geoip", version = "0.36.0", optional = true }
+tor-linkspec = { path = "../tor-linkspec", version = "0.36.0" }
+tor-netdir = { path = "../tor-netdir", version = "0.36.0" }
+tor-netdoc = { path = "../tor-netdoc", version = "0.36.0" }
+
+[dev-dependencies]
+tor-basic-utils = { path = "../tor-basic-utils", version = "0.36" }
+tor-netdir = { path = "../tor-netdir", version = "0.36.0", features = ["testing"] }
+tor-netdoc = { path = "../tor-netdoc", version = "0.36.0", features = ["testing"] }
+
+[package.metadata.docs.rs]
+all-features = true

@@ -4,37 +4,15 @@ mod websocket;
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Duration;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::future_to_promise;
 use webtor::{TorClient as NativeTorClient, TorClientOptions as NativeTorClientOptions};
-
-// Re-export for JavaScript
-#[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
-    
-    #[wasm_bindgen(js_namespace = console)]
-    fn error(s: &str);
-    
-    #[wasm_bindgen(js_namespace = console)]
-    fn warn(s: &str);
-}
-
-macro_rules! console_log {
-    ($($t:tt)*) => (log(&format_args!($($t)*).to_string()))
-}
-
-macro_rules! console_error {
-    ($($t:tt)*) => (error(&format_args!($($t)*).to_string()))
-}
-
-macro_rules! console_warn {
-    ($($t:tt)*) => (warn(&format_args!($($t)*).to_string()))
-}
+use gloo_console::{log as console_log, error as console_error, warn as console_warn};
 
 /// JavaScript-friendly options for TorClient
 #[wasm_bindgen]
+#[derive(Clone)]
 pub struct TorClientOptions {
     inner: NativeTorClientOptions,
 }
@@ -43,7 +21,7 @@ pub struct TorClientOptions {
 impl TorClientOptions {
     #[wasm_bindgen(constructor)]
     pub fn new(snowflake_url: String) -> Self {
-        console_log!("Creating TorClientOptions with snowflake URL: {}", snowflake_url);
+        console_log!(format!("Creating TorClientOptions with snowflake URL: {}", snowflake_url));
         
         Self {
             inner: NativeTorClientOptions::new(snowflake_url),
@@ -84,6 +62,7 @@ impl TorClientOptions {
 
 /// JavaScript-friendly TorClient
 #[wasm_bindgen]
+#[derive(Clone)]
 pub struct TorClient {
     inner: Option<Arc<NativeTorClient>>,
 }
@@ -105,7 +84,7 @@ impl TorClient {
                     }))
                 }
                 Err(e) => {
-                    console_error!("Failed to create TorClient: {}", e);
+                    console_error!(format!("Failed to create TorClient: {}", e));
                     Err(JsValue::from_str(&format!("Failed to create TorClient: {}", e)))
                 }
             }
@@ -115,7 +94,7 @@ impl TorClient {
     /// Make a fetch request through Tor
     #[wasm_bindgen(js_name = fetch)]
     pub fn fetch(&self, url: String) -> js_sys::Promise {
-        console_log!("Starting fetch request to: {}", url);
+        console_log!(format!("Starting fetch request to: {}", url));
         
         let client = match &self.inner {
             Some(client) => client.clone(),
@@ -142,7 +121,7 @@ impl TorClient {
                     Ok(JsValue::from(js_response))
                 }
                 Err(e) => {
-                    console_error!("Fetch request failed: {}", e);
+                    console_error!(format!("Fetch request failed: {}", e));
                     Err(JsValue::from_str(&format!("Fetch request failed: {}", e)))
                 }
             }
@@ -157,7 +136,7 @@ impl TorClient {
         connection_timeout: Option<u32>,
         circuit_timeout: Option<u32>,
     ) -> js_sys::Promise {
-        console_log!("Making one-time fetch request to: {} via {}", url, snowflake_url);
+        console_log!(format!("Making one-time fetch request to: {} via {}", url, snowflake_url));
         
         future_to_promise(async move {
             match NativeTorClient::fetch_one_time(
@@ -179,7 +158,7 @@ impl TorClient {
                     Ok(JsValue::from(js_response))
                 }
                 Err(e) => {
-                    console_error!("One-time fetch request failed: {}", e);
+                    console_error!(format!("One-time fetch request failed: {}", e));
                     Err(JsValue::from_str(&format!("One-time fetch request failed: {}", e)))
                 }
             }
@@ -189,7 +168,7 @@ impl TorClient {
     /// Update the circuit
     #[wasm_bindgen(js_name = updateCircuit)]
     pub fn update_circuit(&self, deadline_ms: u32) -> js_sys::Promise {
-        console_log!("Updating circuit with {}ms deadline", deadline_ms);
+        console_log!(format!("Updating circuit with {}ms deadline", deadline_ms));
         
         let client = match &self.inner {
             Some(client) => client.clone(),
@@ -207,7 +186,7 @@ impl TorClient {
                     Ok(JsValue::UNDEFINED)
                 }
                 Err(e) => {
-                    console_error!("Circuit update failed: {}", e);
+                    console_error!(format!("Circuit update failed: {}", e));
                     Err(JsValue::from_str(&format!("Circuit update failed: {}", e)))
                 }
             }
@@ -235,7 +214,7 @@ impl TorClient {
                     Ok(JsValue::UNDEFINED)
                 }
                 Err(e) => {
-                    console_error!("Failed to wait for circuit: {}", e);
+                    console_error!(format!("Failed to wait for circuit: {}", e));
                     Err(JsValue::from_str(&format!("Failed to wait for circuit: {}", e)))
                 }
             }
@@ -308,6 +287,81 @@ impl TorClient {
             })
         }
     }
+
+    // --- Rust-friendly methods (not exposed to JS, but usable by other Rust crates) ---
+
+    pub async fn create(options: TorClientOptions) -> Result<Self, String> {
+         match NativeTorClient::new(options.inner).await {
+            Ok(client) => Ok(TorClient {
+                inner: Some(Arc::new(client)),
+            }),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    pub async fn fetch_rust(&self, url: &str) -> Result<JsHttpResponse, String> {
+        let client = self.inner.as_ref().ok_or("TorClient is not initialized")?;
+        match client.fetch(url).await {
+            Ok(response) => {
+                Ok(JsHttpResponse {
+                    status: response.status,
+                    headers: serde_wasm_bindgen::to_value(&response.headers).unwrap(),
+                    body: response.body,
+                    url: response.url.to_string(),
+                })
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    pub async fn wait_for_circuit_rust(&self) -> Result<(), String> {
+        let client = self.inner.as_ref().ok_or("TorClient is not initialized")?;
+        client.wait_for_circuit().await.map_err(|e| e.to_string())
+    }
+
+    pub async fn close_rust(&mut self) {
+        if let Some(client) = self.inner.take() {
+             // We need to clone the Arc because close takes self/&self but we are taking ownership of the Arc from Option
+             // Actually client.close() takes &self. 
+             // But we removed it from Option, so we own the Arc.
+             // NativeTorClient::close is async.
+             client.close().await;
+        }
+    }
+
+    pub async fn get_circuit_status_string_rust(&self) -> Result<String, String> {
+        let client = self.inner.as_ref().ok_or("TorClient is not initialized")?;
+        Ok(client.get_circuit_status_string().await)
+    }
+
+    pub async fn fetch_one_time_rust(
+        snowflake_url: &str,
+        url: &str,
+        connection_timeout: Option<u64>,
+        circuit_timeout: Option<u64>,
+    ) -> Result<JsHttpResponse, String> {
+         match NativeTorClient::fetch_one_time(
+            snowflake_url,
+            url,
+            connection_timeout,
+            circuit_timeout,
+        ).await {
+            Ok(response) => {
+                Ok(JsHttpResponse {
+                    status: response.status,
+                    headers: serde_wasm_bindgen::to_value(&response.headers).unwrap(),
+                    body: response.body,
+                    url: response.url.to_string(),
+                })
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    }
+    
+    pub async fn update_circuit_rust(&self, deadline_ms: u64) -> Result<(), String> {
+        let client = self.inner.as_ref().ok_or("TorClient is not initialized")?;
+        client.update_circuit(Duration::from_millis(deadline_ms)).await.map_err(|e| e.to_string())
+    }
 }
 
 /// JavaScript-friendly HTTP response
@@ -350,7 +404,7 @@ impl JsHttpResponse {
     #[wasm_bindgen(js_name = json)]
     pub fn json(&self) -> Result<JsValue, JsValue> {
         let text = self.text()?;
-        serde_json::from_str(&text)
+        serde_json::from_str::<serde_json::Value>(&text)
             .map_err(|e| JsValue::from_str(&format!("Invalid JSON: {}", e)))
             .map(|v| serde_wasm_bindgen::to_value(&v).unwrap())
     }
@@ -401,8 +455,8 @@ impl JsCircuitStatus {
 }
 
 /// Initialize the WASM module
-#[wasm_bindgen(start)]
-pub fn main() {
+#[wasm_bindgen]
+pub fn init() {
     // Set up panic handler
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
     

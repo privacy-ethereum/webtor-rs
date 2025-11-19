@@ -2,6 +2,17 @@
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use std::sync::Arc;
+use std::fmt;
+
+#[derive(Clone)]
+pub struct LogCallback(pub Arc<dyn Fn(&str, LogType) + Send + Sync>);
+
+impl fmt::Debug for LogCallback {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "LogCallback")
+    }
+}
 
 /// Configuration options for the TorClient
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,9 +40,12 @@ pub struct TorClientOptions {
     #[serde(default = "default_circuit_update_advance")]
     pub circuit_update_advance: u64,
     
+    /// Optional bridge fingerprint (hex string) to verify the bridge identity
+    pub bridge_fingerprint: Option<String>,
+
     /// Optional logging callback function (for WASM bindings)
     #[serde(skip)]
-    pub on_log: Option<Box<dyn Fn(&str, LogType) + Send + Sync>>,
+    pub on_log: Option<LogCallback>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -60,6 +74,7 @@ impl Default for TorClientOptions {
             create_circuit_early: default_create_circuit_early(),
             circuit_update_interval: default_circuit_update_interval(),
             circuit_update_advance: default_circuit_update_advance(),
+            bridge_fingerprint: None,
             on_log: None,
         }
     }
@@ -117,12 +132,17 @@ impl TorClientOptions {
         self.circuit_update_advance = advance;
         self
     }
+
+    pub fn with_bridge_fingerprint(mut self, fingerprint: String) -> Self {
+        self.bridge_fingerprint = Some(fingerprint);
+        self
+    }
     
     pub fn with_on_log<F>(mut self, on_log: F) -> Self 
     where
         F: Fn(&str, LogType) + Send + Sync + 'static,
     {
-        self.on_log = Some(Box::new(on_log));
+        self.on_log = Some(LogCallback(Arc::new(on_log)));
         self
     }
     

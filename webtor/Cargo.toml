@@ -17,17 +17,15 @@ tracing = { workspace = true }
 
 # Tor protocol implementation
 tor-rtcompat = { workspace = true }
-tor-circmgr = { workspace = true }
 tor-proto = { workspace = true }
 tor-netdoc = { workspace = true }
-tor-config = { workspace = true }
-tor-dirmgr = { workspace = true }
-tor-keymgr = { workspace = true }
 tor-linkspec = { workspace = true }
 tor-llcrypto = { workspace = true }
 tor-cell = { workspace = true }
 tor-error = { workspace = true }
 tor-async-utils = { workspace = true }
+tor-memquota = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
 
 # Cryptography
 rsa = { workspace = true }
@@ -41,11 +39,15 @@ base64 = { workspace = true }
 
 # Networking
 url = { workspace = true }
-reqwest = { workspace = true }
+http = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
-uuid = { version = "1.0", features = ["v4"] }
+serde_json = "1.0"
+uuid = { version = "1.0", features = ["v4", "js"] }
+web-sys = { workspace = true }
+wasm-bindgen = { workspace = true }
+js-sys = { workspace = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

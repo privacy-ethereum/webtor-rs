@@ -1,0 +1,45 @@
+[package]
+name = "tor-socksproto"
+version = "0.36.0"
+authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
+edition = "2024"
+rust-version = "1.86"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "Encode and decode the SOCKS protocol, as extended in Tor"
+keywords = ["tor", "arti", "socks"]
+categories = ["network-programming"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+
+[features]
+default = ["proxy-handshake"]
+
+client-handshake = []
+proxy-handshake = []
+
+full = [
+    "proxy-handshake",
+    "client-handshake",
+    "caret/full",
+    "tor-bytes/full",
+    "tor-error/full",
+    "safelog/full",
+]
+
+[dependencies]
+amplify = { version = "4", default-features = false, features = ["derive"] }
+arbitrary = { version = "1.0.1", optional = true, features = ["derive"] }
+caret = { path = "../caret", version = "0.8.0" }
+derive-deftly = { version = "~1.5.0", features = ["full", "beta"] }
+educe = "0.4.22"
+safelog = { path = "../safelog", version = "0.7.0" }
+subtle = "2"
+thiserror = "2"
+tor-bytes = { path = "../tor-bytes", version = "0.36.0", default-features = false }
+tor-error = { path = "../tor-error", version = "0.36.0", default-features = false }
+
+[dev-dependencies]
+anyhow = "1.0.75"
+hex-literal = "1.0"
+[package.metadata.docs.rs]
+all-features = true

@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+#
+# Run "cargo audit" with an appropriate set of flags.
+
+set -euo pipefail
+
+# List of vulnerabilities to ignore.  It's risky to do this, so we should
+# only do this when two circumstances hold:
+#   1. The vulnerability doesn't affect us.
+#   2. We can't update to an unaffected version.
+#   3. We have a plan to not have this vulnerability ignored forever.
+#
+# If you add anything to this section, make sure to add a comment
+# explaining why it's safe to do so.
+IGNORE=(
+    # As of 28 Nov 2023, all versions of the rsa crate have a variable
+    # timing attack that can leak private keys.
+    #
+    # We do not use (yet) do any private-key rsa operations in arti:
+    # we only use it to verify signatures.
+    --ignore RUSTSEC-2023-0071
+    # paste is unmaintained.
+    #
+    # We depend on it directly in crates like tor-error, tor-persist, tor-config,
+    # and also transitively, for example via
+    # futures-rustls -> rustls -> aws-lc-rc -> paste
+    # and slotmap-careful -> paste.
+    #
+    # In the long run, we should consider replacing it with another crate
+    # (concat-idents?).
+    --ignore RUSTSEC-2024-0436
+    # async-std has been discontinued.
+    # Deprecation/removal plan:
+    # <https://gitlab.torproject.org/tpo/core/arti/-/issues/2130>
+    --ignore RUSTSEC-2025-0052
+)
+
+${CARGO:-cargo} audit -D warnings "${IGNORE[@]}"
+
+
+OBSOLETE_IGNORE=(
+    # instant is unmaintained.
+    #
+    # The current dependency path is:
+    # arti -> signal-hook-async-std -> futures-lite -> fastrand -> instant
+    #
+    # The 'signal-hook-async-std' lib hasn't been updated in three years and depends on `futures-lite = "~1"`.
+    # The latest 'futures-lite' 2.6.0 uses a version of 'fastrand' that does not depend on instant.
+    #
+    # Resolved by replacing signal-hook-async-std with async-signal.
+    #
+    # Issue: https://gitlab.torproject.org/tpo/core/arti/-/issues/1867
+    # MR: https://gitlab.torproject.org/tpo/core/arti/-/merge_requests/2960
+    --ignore RUSTSEC-2024-0384
+    # This is a real but theoretical unaligned read.  It might happen only on
+    # Windows and only with a custom global allocator, which we don't do in our
+    # arti binary.  The bad crate is depended on by env-logger.
+    # 
+    # This is being discussed by those crates' contributors here:
+    #     https://github.com/rust-cli/env_logger/pull/246
+    #
+    # Fixed upstream in env_logger by replacing atty with is_terminal:
+    #     https://github.com/rust-cli/env_logger/pull/248
+    --ignore RUSTSEC-2021-0145
+    # This is not a vulnerability but an unmaintained warning for `ansi_term`.
+    # The upstream issue does not offer good alternatives, and anyway we get
+    # this crate via clap and tracing-*.
+    # It does not seem at all likely that this is really a problem for us.
+    --ignore RUSTSEC-2021-0139
+    # This is not a vulnerability but an unmaintained warn for the
+    # `net2` crate. It was pulled indirectly by `notify` 4.0.
+    # It's fixed in `notify` 5.0.
+    --ignore RUSTSEC-2020-0016
+    # This is not a vulnerability but an unmaintained warn for the
+    # `tempdir` crate. It was pulled by `tls-api` 0.7.0. `tls-api`
+    # 0.8.0 switched to tempfile instead.
+    --ignore RUSTSEC-2018-0017
+    # This is a vulnerability in the `nix` crate caused by an
+    # out-of-bounds write in `getgrouplist`.  We got our `nix`
+    # dependency via `async-ctrlc`, which uses `ctrlc`, which uses
+    # `nix`.
+    #
+    # Why this didn't affect us:
+    #  * ctrlc doesn't use `getgrouplist`.
+    #
+    # Why we couldn't update to a better version of `nix`:
+    #  * ctrlc version 3.2.0 and earlier were stuck on `nix` 0.22.
+    #
+    # How it was fixed:
+    #  * ctrlc version 3.2.1 upgraded its `nix` dependency to 0.23.
+    --ignore RUSTSEC-2021-0119
+    # This is a vulnerability in the `time` crate.  We don't import
+    # `time` directly, but inherit it through the `oldtime` feature
+    # in `chrono`.  The vulnerability occurs when somebody messes
+    # with the environment while at the same time calling a function
+    # that uses localtime_r.
+    #
+    # Why this doesn't affect us:
+    #   * We never use the time crate, and we never mess with local times via the time crate.  We only get the time crate accidentally
+    #     because rusqlite builds chrono with its default-features
+    #     enabled.
+    #
+    # Why we can't update to a better version of `time`:
+    #   * Chrono's `oldtime` feature requires `time` 0.1.43, and can't
+    #     be update to `time` 0.2.x.
+    #   * Rusqlite's feature that enables `chrono` support does so by
+    #     depending on `chrono` with default features, which includes
+    #     `oldtime`.
+    #
+    # What we can do:
+    #  * Get rusqlite to update its dependency on `chrono` to not
+    #    include `oldtime`.
+    #    (PR: https://github.com/rusqlite/rusqlite/pull/1031 )
+    #  * Stop using the `chrono` feature on rusqlite, and do our date
+    #    conversions in `tor-dirmgr` manually.
+    #
+    # Eventual resolution: we migrated to use time 0.3 instead of chrono.
+    --ignore RUSTSEC-2020-0071
+    # This vulnerability affects the `chrono` crate: it uses
+    # `localtime_r()`, which is not thread-safe if anybody calls
+    # `setenv()`.
+    #
+    # This is concerning!  What makes it not disastrous is:
+    #  * We don't use chrono for any local times in Arti: only Utc.
+    #  * We don't modify the environment.
+    #
+    # There is no unaffected version of chrono yet.
+    #
+    # Fortunately (?), the whole Rust ecosystem is currently freaking
+    # out about chrono, so we can hope there's a solution before too long.
+    #
+    # Eventual resolution: we migrated to use time 0.3 instead of chrono.
+    --ignore RUSTSEC-2020-0159
+
+    # The `users` crate (which `fs-mistrust` depended on) is unmaintained.
+    #
+    # Eventual resolution: we replaced `users` with `pwd-grp`.
+    --ignore RUSTSEC-2023-0040
+
+    # This is an API vulnerability in ed25519-dalek v1.x.x, to the
+    # extent that it does not force you to store private and public
+    # keys as a single keypair.
+    #
+    # We have desigend our APIs to work around this, and believe we
+    # are not affected.  We should eventually upgrade to
+    # ed25519-dalek >= 2, however.
+    #
+    # Eventual resolution: We migrated to ed25519-dalek v2.x.x.
+    --ignore RUSTSEC-2022-0093
+
+    # This is not a vulnerability but an unmaintained warning for
+    # `generational-arena`. It is only used by arti-rpcserver (which is
+    # experimental).
+    #
+    # Eventual resolution: Migrated to slotmap-careful; see #1282
+    --ignore RUSTSEC-2024-0014
+
+    # proc-macro-error is unmaintained.
+    #
+    # Resolution: We migrated to dynasmrt 3, which doesn't use it.
+    --ignore RUSTSEC-2024-0370
+
+    # idns 0.5.0 and earlier had bugs in handling some punycode labels
+    # that can cause unequal labels to look like the same labels.
+    #
+    # See https://gitlab.torproject.org/tpo/core/arti/-/issues/1773
+    # for our internal tracking.
+    #
+    # Resolution: Upgraded to versions of hickory that don't need
+    # these versions of idns.
+    --ignore RUSTSEC-2024-0421
+)
+_="${OBSOLETE_IGNORE[0]}"

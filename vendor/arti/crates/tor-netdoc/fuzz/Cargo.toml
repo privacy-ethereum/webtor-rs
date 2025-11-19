@@ -1,0 +1,57 @@
+
+[package]
+name = "tor-netdoc-fuzz"
+version = "0.0.0"
+authors = ["Automatically generated"]
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.tor-netdoc]
+path = ".."
+features = ["routerdesc", "plain-consensus", "hsdesc-inner-docs", "hs-service"]
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "authcert"
+path = "fuzz_targets/authcert.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "routers"
+path = "fuzz_targets/routers.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "mds"
+path = "fuzz_targets/mds.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "consensus"
+path = "fuzz_targets/consensus.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "nsconsensus"
+path = "fuzz_targets/nsconsensus.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "hsdesc"
+path = "fuzz_targets/hsdesc.rs"
+test = false
+doc = false

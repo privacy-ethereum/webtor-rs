@@ -1,0 +1,99 @@
+[package]
+name = "tor-llcrypto"
+version = "0.36.0"
+authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
+edition = "2024"
+rust-version = "1.86"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "Low level cryptography wrappers used by Tor"
+keywords = ["tor", "arti", "cryptography"]
+categories = ["cryptography"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+
+[features]
+default = []
+memquota-memcost = ["tor-memquota"]
+full = [
+    "memquota-memcost",
+    "rng-compat",
+    "safelog/full",
+    "tor-memquota?/full",
+    "tor-error/full",
+]
+
+with-openssl = ["openssl", "typenum", "cipher", "__is_nonadditive"]
+with-sha1-asm = ["sha1/asm", "__is_nonadditive"]
+
+experimental = ["relay", "hsv3-client", "hsv3-service", "keymgr", "testing"]
+
+# Enable support for cryptography needed to be a Tor relay.
+relay = ["cvt-x25519", "__is_experimental"]
+# Enable support for cryptography needed to be an onion service v3 client.
+hsv3-client = ["__is_experimental"]
+# Enable support for cryptography needed to be an onion service v3 service.
+hsv3-service = ["__is_experimental"]
+# Enable support for cryptography needed for key management.
+keymgr = ["cvt-x25519", "__is_experimental"]
+# Enable extra support for converting keys to and from x25519
+cvt-x25519 = []
+# Compatibility support for older versions of the rand crate.
+rng-compat = []
+# Support for testing functionality, which might expose APIs that are
+# not secure to use otherwise.
+testing = ["__is_experimental"]
+
+__is_nonadditive = []
+__is_experimental = []
+
+[dependencies]
+aes = { version = "0.8", features = ["zeroize"] }
+base64ct = "1.5.1"
+cipher = { version = "0.4.3", optional = true, features = ["zeroize"] }
+ctr = { version = "0.9", features = ["zeroize"] }
+curve25519-dalek = "4.1"
+der-parser = { version = "10", features = ["serialize"] }
+derive-deftly = { version = "1.5.0" }
+derive_more = { version = "2.0.1", features = ["full"] }
+digest = "0.10.0"
+ed25519-dalek = { version = "2.2", features = ["batch", "hazmat"] }
+educe = "0.4.22"
+hex = "0.4"
+openssl = { version = "0.10.48", optional = true }
+rand = "0.9.1"
+rand_core = "0.9.3"
+rand_core_06 = { package = "rand_core", version = "0.6" }
+rsa = "0.9.0"
+safelog = { version = "0.7.0", path = "../safelog" }
+serde = "1.0.103"
+sha1 = "0.10.0"
+sha2 = "0.10.0"
+sha3 = "0.10.6"
+signature = "2"
+subtle = "2"
+thiserror = "2"
+tor-error = { version = "0.36.0", path = "../tor-error" }
+tor-memquota = { version = "0.36.0", path = "../tor-memquota", default-features = false, optional = true }
+typenum = { version = "1.15.0", optional = true }
+visibility = "0.1.0"
+x25519-dalek = { version = "2.0.0", features = ["static_secrets"] }
+zeroize = "1"
+
+[dev-dependencies]
+cipher = "0.4.1"
+hex-literal = "1.0"
+rand = "0.9.1"
+serde_test = "1.0.124"
+tor-basic-utils = { path = "../tor-basic-utils", version = "0.36.0" }
+[package.metadata.docs.rs]
+all-features = true
+
+[target.'cfg(any(target_arch = "x86", target_arch = "x86_64"))'.dependencies]
+rdrand = "0.8"
+
+[target.'cfg(not(taret_arch = "wasm32"))'.dependencies]
+rand_chacha = "0.9"
+rand_jitter = { version = "0.5", features = ["std"] }
+
+[target.wasm32-unknown-unknown.dependencies]
+getrandom = "0.3.2"

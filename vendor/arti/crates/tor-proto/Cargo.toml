@@ -1,0 +1,199 @@
+[package]
+name = "tor-proto"
+version = "0.36.0"
+authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
+edition = "2024"
+rust-version = "1.86"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "Asynchronous client-side implementation of the central Tor network protocols"
+keywords = ["tor", "arti", "networking", "anonymity"]
+categories = ["network-programming", "cryptography"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = []
+full = [
+    "hs-client",
+    "hs-service",
+    "tokio",
+    "send-control-msg",
+    "safelog/full",
+    "tor-async-utils/full",
+    "tor-basic-utils/full",
+    "tor-bytes/full",
+    "tor-cell/full",
+    "tor-cert/full",
+    "tor-checkable/full",
+    "tor-config/full",
+    "tor-error/full",
+    "tor-linkspec/full",
+    "tor-llcrypto/full",
+    "tor-rtcompat/full",
+    "tor-rtmock/full",
+    "tor-units/full",
+    "tor-hscrypto?/full",
+    "tor-log-ratelim/full",
+    "oneshot-fused-workaround/full",
+    "tor-memquota/full",
+    "slotmap-careful/full",
+    "caret/full",
+    "tor-protover/full",
+    "tor-relay-crypto/full",
+]
+
+experimental = [
+    "experimental-api",
+    "conflux",
+    "flowctl-cc",
+    "stream-ctrl",
+    "testing",
+    "bench",
+    "counter-galois-onion",
+    "relay",
+    "circ-padding",
+    "circ-padding-manual",
+]
+conflux = ["tor-cell/conflux", "__is_experimental"]
+flowctl-cc = ["__is_experimental"]
+
+hs-client = ["hs-common"]
+hs-service = ["hs-common"]
+hs-common = ["tor-hscrypto"]
+experimental-api = ["__is_experimental"]
+# start_conversation etc.; TODO HS should be renamed
+send-control-msg = []
+stream-ctrl = ["__is_experimental"]
+counter-galois-onion = ["__is_experimental", "aes", "ctr", "polyval", "flowctl-cc"]
+circ-padding = ["__is_experimental", "maybenot"]
+circ-padding-manual = ["__is_experimental", "circ-padding"]
+relay = ["__is_experimental", "flowctl-cc"]
+
+# Enable testing-only APIs.  APIs under this feature are not
+# covered by semver.
+testing = ["__is_experimental"]
+tokio = ["tokio-crate", "tokio-util"]
+bench = ["__is_experimental"]
+__is_experimental = []
+
+[dependencies]
+aes = { version = "0.8", optional = true }
+amplify = { version = "4", default-features = false, features = ["derive"] }
+asynchronous-codec = "0.7.0"
+bitvec = "1.0.1"
+bytes = "1"
+caret = { path = "../caret", version = "0.8.0" }
+cfg-if = "1.0.0"
+cipher = { version = "0.4.1", features = ["zeroize"] }
+coarsetime = "0.1.20"
+ctr = { version = "0.9", optional = true, features = ["zeroize"] }
+derive-deftly = "1.5.0"
+derive_builder = { version = "0.11.2", package = "derive_builder_fork_arti" }
+derive_more = { version = "2.0.1", features = ["full"] }
+digest = "0.10.0"
+educe = "0.4.22"
+enum_dispatch = "0.3.13"
+futures = "0.3.14"
+futures-util = "0.3.31"
+hkdf = "0.12.0"
+hmac = "0.12.0"
+itertools = "0.14.0"
+maybenot = { version = "2.2.1", optional = true }
+nonany = "0.3"
+oneshot-fused-workaround = { path = "../oneshot-fused-workaround", version = "0.5.0" }
+pin-project = "1"
+polyval = { version = "0.6", optional = true }
+postage = { version = "0.5.0", default-features = false, features = ["futures-traits"] }
+rand = "0.9.1"
+rand_core = "0.9.3"
+safelog = { path = "../safelog", version = "0.7.0" }
+slotmap-careful = { path = "../slotmap-careful", version = "0.5.0" }
+smallvec = { version = "1.10", features = ["const_generics"] }
+static_assertions = "1"
+subtle = "2"
+sync_wrapper = "1.0.2"
+thiserror = "2"
+tokio-crate = { package = "tokio", version = "1.7", optional = true }
+tokio-util = { version = "0.7.0", features = ["compat"], optional = true }
+tor-async-utils = { path = "../tor-async-utils", version = "0.36.0" }
+tor-basic-utils = { path = "../tor-basic-utils", version = "0.36.0" }
+tor-bytes = { path = "../tor-bytes", version = "0.36.0" }
+tor-cell = { path = "../tor-cell", version = "0.36.0" }
+tor-cert = { path = "../tor-cert", version = "0.36.0" }
+tor-checkable = { path = "../tor-checkable", version = "0.36.0" }
+tor-config = { path = "../tor-config", version = "0.36.0" }
+tor-error = { path = "../tor-error", version = "0.36.0" }
+tor-hscrypto = { path = "../tor-hscrypto", version = "0.36.0", features = ["memquota-memcost"], optional = true }
+tor-linkspec = { path = "../tor-linkspec", version = "0.36.0" }
+tor-llcrypto = { path = "../tor-llcrypto", version = "0.36.0", features = ["memquota-memcost"] }
+tor-log-ratelim = { path = "../tor-log-ratelim", version = "0.36.0" }
+tor-memquota = { version = "0.36.0", path = "../tor-memquota", default-features = false }
+tor-protover = { version = "0.36.0", path = "../tor-protover" }
+tor-relay-crypto = { version = "0.36.0", path = "../tor-relay-crypto" }
+tor-rtcompat = { path = "../tor-rtcompat", version = "0.36.0" }
+tor-rtmock = { path = "../tor-rtmock", version = "0.36.0" }
+tor-units = { path = "../tor-units", version = "0.36.0", features = ["memquota-memcost"] }
+tracing = "0.1.36"
+typenum = "1.12"
+visibility = { version = "0.1.0" }
+void = "1"
+zeroize = "1"
+
+[target.'cfg(any(target_arch = "x86", target_arch = "x86_64"))'.dependencies]
+criterion-cycles-per-byte = "0.7.0"
+
+[dev-dependencies]
+assert_matches = "1.5.0"
+criterion = "0.7.0"
+hex = "0.4"
+hex-literal = "1.0"
+humantime = "2"
+itertools = "0.14.0"
+regex = { version = "1", default-features = false, features = ["std"] }
+statrs = "0.18.0"
+tokio-crate = { package = "tokio", version = "1.7", features = ["full"] }
+tor-rtcompat = { path = "../tor-rtcompat", version = "0.36.0", features = ["tokio", "native-tls"] }
+tracing-test = "0.2.4"
+
+[[bench]]
+name = "client_decrypt"
+harness = false
+required-features = ["bench"]
+
+[[bench]]
+name = "client_encrypt"
+harness = false
+required-features = ["bench"]
+
+[[bench]]
+name = "exit_decrypt"
+harness = false
+required-features = ["bench"]
+
+[[bench]]
+name = "exit_encrypt"
+harness = false
+required-features = ["bench"]
+
+[[bench]]
+name = "relay_decrypt"
+harness = false
+required-features = ["bench"]
+
+[[bench]]
+name = "relay_encrypt"
+harness = false
+required-features = ["bench"]
+
+[[bench]]
+name = "tor1_is_recognized"
+harness = false
+required-features = ["bench"]
+
+[[bench]]
+name = "tor1_set_digest"
+harness = false
+required-features = ["bench"]

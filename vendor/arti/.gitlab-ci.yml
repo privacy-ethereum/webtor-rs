@@ -1,0 +1,891 @@
+stages:
+  - build
+  - test
+  - deploy
+
+variables:
+  # We don't need Husky to install the Git hooks for CI.
+  CARGO_HUSKY_DONT_INSTALL_HOOKS: "true"
+  # fs-mistrust doesn't like umask 0
+  FF_DISABLE_UMASK_FOR_DOCKER_EXECUTOR: "true"
+  # Enable timestamps in job log lines.
+  FF_TIMESTAMPS: "true"
+  # Pinned CI image for most Rust tests
+  # Using "amd64/" single-arch variant to work around https://gitlab.torproject.org/tpo/tpa/team/-/issues/41621.
+  RECENT_RUST_IMAGE: "docker.io/amd64/rust:1.91.0-trixie"
+  # Pinned chutney version.
+  # main @ 2025-07-16
+  CHUTNEY_COMMIT: "f9435e45f826a265dd3b7d341356cb04f1aa7b09"
+  # Profile to use when building the arti bins that we use for integration tests.
+  # When changing this, also update ARTI_CI_PROFILE_PATH, below.
+  ARTI_CI_PROFILE: quicktest
+  # The *path* under `target/<platform>/` where cargo puts builds of profile
+  # `ARTI_CI_PROFILE`.  This is *usually* the same as name of the profile, but
+  # for profile `dev` is `debug`.
+  ARTI_CI_PROFILE_PATH: quicktest
+
+default:
+  image:
+    name: containers.torproject.org/tpo/tpa/base-images/debian:trixie
+    docker:
+      platform: linux/amd64
+  before_script:
+    # get section_start and section_end bash functions
+    - source maint/ci_log_span_fns.sh
+    # gitlab fetch strategy doesn't reset permissions
+    - (while [ "$PWD" != / ]; do chmod go-w . && cd ..; done)
+    # verify that we're running in a container built for amd64.
+    # See https://gitlab.torproject.org/tpo/tpa/team/-/issues/41621
+    - |
+      (
+      if type dpkg; then
+        arch="$(dpkg --print-architecture)"
+        expected=amd64
+      elif type apk; then
+        arch="$(apk --print-arch)"
+        expected=x86_64
+      else
+        echo "Couldn't determine userspace build arch"
+        exit 1
+      fi
+      echo "Detected userspace build arch: $arch"
+      if [ "$arch" != "$expected" ]; then
+        echo "ERROR: Expected userspace build arch $expected; found $arch";
+        exit 1;
+      fi
+      )
+    # Put 3rd party cloned source (that we don't want in artifacts) in ~/src
+    - mkdir -p ~/src
+    # Support installing software to ~/.local
+    - mkdir -p ~/.local
+    - 'export PATH=$HOME/.local/bin:$PATH'
+    # Tell cargo to limit parallelism.
+    # See https://gitlab.torproject.org/tpo/tpa/team/-/issues/42283
+    - export CARGO_BUILD_JOBS="$(maint/get-max-parallelism 1024)"
+    - echo "set CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"
+    # Get some load stats as a crude debugging aid.
+    - cat /proc/loadavg
+    - for x in cpu io memory ; do echo /proc/pressure/$x; cat /proc/pressure/$x || true; done
+
+  after_script:
+    # Get some load stats as a crude debugging aid.
+    - cat /proc/loadavg
+    - for x in cpu io memory ; do echo /proc/pressure/$x; cat /proc/pressure/$x || true; done
+    # In every case, if we have a working `cargo` we should clean up
+    # our target directory before we exit.  (Leaving big hunks of data
+    # on the builders make our admins sad.)
+    - if command -v cargo && test -d ./target; then cargo clean; fi
+
+check-editorconfig:
+  needs: []
+  stage: build
+  image: docker.io/mstruebing/editorconfig-checker:v3.4.1
+  script:
+    - ec
+
+shellcheck:
+  needs: []
+  stage: build
+  image: docker.io/koalaman/shellcheck-alpine:v0.11.0
+  script:
+    - apk add git bash
+    - ./maint/common/shellcheck-all
+
+python3-checks:
+  needs: []
+  stage: build
+  variables:
+    # Updated 2025-09-15
+    BLACK_VERSION: "25.1.0"
+    # Updated 2025-09-15
+    FLAKE8_VERSION: "7.3.0"
+    # Updated 2025-09-15
+    MYPY_VERSION: "1.18.1"
+  script:
+    - maint/common/apt-install python3-pip python3-venv git
+    # AFAICT these python packages do not have debian packages.
+    #
+    # (`black` does have a debian package, but we need the latest version.)
+    #
+    # (NOTE: We have specific versions of some tools pinned here to avoid
+    # breakage; we should update them periodically.)
+    - python3 -m venv lint
+    - source lint/bin/activate
+    - pip3 install
+        marko
+        tomli_w
+        types-toml
+        types-PyYAML
+        types-beautifulsoup4
+        types-requests
+        black=="$BLACK_VERSION"
+        flake8=="$FLAKE8_VERSION"
+        mypy=="$MYPY_VERSION"
+    - ./maint/python-lints
+
+maint-checks:
+  needs: []
+  stage: build
+  script:
+    - maint/common/apt-install git python3-toml python3-requests python3-mistune
+    - ./maint/check_toposort
+    - ./maint/add_warning --check
+    - ./maint/common/forbid-absolute-shebangs
+    - ./maint/common/forbid-script-extensions
+    - ./maint/common/update-shell-includes --check --all
+    - ./maint/cargo-check-publishable
+    - ./maint/check_case_sensitive
+    - ./maint/check_instrument_macros
+    - git fetch --unshallow $ORIGIN
+    - ./maint/update-md-links --check CHANGELOG.md
+
+maint-check-ownership:
+  stage: test
+  allow_failure: true
+  script:
+    - maint/common/apt-install python3-toml curl jq
+    - ./maint/cargo-crate-owners
+  rules:
+    # Don't impede MR work when this goes wrong.
+    # Also, avoid running it for tags, because that would make the release tag
+    # (run right after tagging) CI fail, before the release technician has had
+    # a chance to run `cargo add`.
+    - if: $CI_COMMIT_BRANCH == "main"
+
+maint-check-cbindgen:
+  needs: []
+  stage: test
+  # cbindgen needs nightly rust to do macro expansion
+  image: docker.io/rustlang/rust:nightly
+  script:
+    - ./maint/common/apt-install python3-toml
+    - ./maint/common/via-cargo-install-in-ci cbindgen --version 0.28.0
+    - ./maint/cbindgen --check
+
+# This should always be in the last testing stage, so that if it fails all the other steps still run
+# But it should run before any deployument.
+blocking-todos:
+  stage: test
+  needs: []
+  script:
+    - maint/common/apt-install git
+    - ./maint/check_todos
+
+rust-checks:
+  needs: []
+  # This is too slow (and the cacheing of the "cargo build" too flaky) to be a "check"
+  stage: build
+  image: $RECENT_RUST_IMAGE
+  script:
+    - rustup show
+    - rustup component add rustfmt
+    - ./maint/common/apt-install jq
+    - ./maint/common/via-cargo-install-in-ci cargo-sort --version 2.0.1
+    - ./maint/common/via-cargo-install-in-ci cargo-license --version 0.7.0
+    - cargo fmt -- --check
+    - ./maint/check_licenses
+    - ./maint/check_msrv
+    - ./maint/cargo_sort
+    - ./maint/check_tree
+    - ./maint/check_all_lockfiles
+    - ./maint/check_wildcard
+    - ./maint/common/forbid-hard-tabs
+  cache:
+    paths:
+      - cache
+
+cargo-audit:
+  needs: []
+  # This can start to fail even when our code doesn't change.
+  # Usually the new advisory is not a huge concern.
+  # Run it last, separately, so if we think we may want to merge anyway,
+  # all the other tests will have been run.
+  stage: test
+  image: $RECENT_RUST_IMAGE
+  script:
+    - rustup show
+    - ./maint/common/via-cargo-install-in-ci cargo-audit
+    - ./maint/cargo_audit
+  cache:
+    paths:
+      - cache
+
+rust-test-recent:
+  needs: []
+  stage: build
+  image: $RECENT_RUST_IMAGE
+  script: &rust-test-script
+    - rustup show
+    - cargo test --target x86_64-unknown-linux-gnu
+
+rust-test-latest:
+  stage: test
+  # Using "amd64/" single-arch variant to work around https://gitlab.torproject.org/tpo/tpa/team/-/issues/41621.
+  image: docker.io/amd64/rust:trixie
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - *rust-test-script
+
+rust-dev-recent:
+  needs: []
+  stage: build
+  image: $RECENT_RUST_IMAGE
+  script: &rust-dev-test-script
+    # While cargo "check", "clippy", and  "docs" all use the 'dev'
+    # cargo profile, they don't appear to actually reuse artifacts from
+    # each-other. If needed, we could split them out into their own jobs
+    # without increasing the total work performed beyond the overhead
+    # of the extrea gitlab jobs themselves.
+    - rustup show
+
+    - section_start "cargo check"
+    - cargo check --locked --target x86_64-unknown-linux-gnu
+
+    - section_start "cargo clippy"
+    - rustup component add clippy
+    - rustup show
+    - ./maint/add_warning --ci-stable
+    - cargo clippy --all-features --all-targets -- -D warnings
+
+    - section_start "build docs"
+    - RUSTDOCFLAGS="-Dwarnings" cargo doc --all-features --document-private-items --no-deps
+    - section_end
+
+rust-dev-latest:
+  stage: test
+  # Using "amd64/" single-arch variant to work around https://gitlab.torproject.org/tpo/tpa/team/-/issues/41621.
+  image: docker.io/amd64/rust:trixie
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - *rust-dev-test-script
+
+# Perform tests and compilations that build executable for use in integration testing, which
+# use the cargo $ARTI_CI_PROFILE profile, allowing compilation artifacts to be reused.
+rust-recent-integration:
+  needs: []
+  stage: build
+  image: $RECENT_RUST_IMAGE
+  script:
+    - rustup show
+
+    - section_start "build arti-bench"
+    - cargo build --profile $ARTI_CI_PROFILE --locked --target x86_64-unknown-linux-gnu -p arti-bench
+
+    - section_start "build arti"
+    - cargo build --profile $ARTI_CI_PROFILE --locked --target x86_64-unknown-linux-gnu -p arti
+
+    - section_end
+    - ./maint/preserve target/x86_64-unknown-linux-gnu/$ARTI_CI_PROFILE_PATH/arti target/x86_64-unknown-linux-gnu/$ARTI_CI_PROFILE_PATH/arti-bench
+  artifacts:
+    paths:
+      - artifacts
+    expire_in: 1 day
+
+.rust-recent-arti-extra-features-template:
+  script: &rust-recent-arti-extra-features-script
+    - rustup show
+    # Build the arti binary for use in chutney and shadow integration tests.
+    #
+    # Note: we enable the `experimental-api` feature instead of `experimental`,
+    # because we don't want to build with `rpc` enabled. The `rpc` feature causes
+    # the RPC listener to try to bind to a Unix domain socket, and pathname Unix
+    # domain sockets are not currently supported by shadow.
+    #
+    # Consider enabling the rpc feature when shadow starts supporting pathname
+    # addresses, or when we add a config setting for disabling rpc.
+    #
+    # Note: `-p arti` is *not* already implied by `--bin arti`. If we omit it,
+    # we'll get the union of all features needed by anything in the workspace,
+    # including examples.
+    - cargo build
+      --profile $ARTI_CI_PROFILE
+      --target x86_64-unknown-linux-gnu
+      -p arti -p tor-circmgr
+      --bin arti
+      --features full,restricted-discovery,arti-client/keymgr,onion-service-service,vanguards,ctor-keystore,opentelemetry
+
+rust-recent-arti-extra-features:
+  needs: []
+  stage: build
+  image: $RECENT_RUST_IMAGE
+  script:
+    - *rust-recent-arti-extra-features-script
+    - ./maint/preserve target/x86_64-unknown-linux-gnu/$ARTI_CI_PROFILE_PATH/arti
+    # Save the full-featured binary under a different name to prevent it from being
+    # overwritten by the other jobs that preserve the arti binary.
+    - mv artifacts/target/x86_64-unknown-linux-gnu/$ARTI_CI_PROFILE_PATH/arti artifacts/target/x86_64-unknown-linux-gnu/$ARTI_CI_PROFILE_PATH/arti-extra
+  artifacts:
+    paths:
+      - artifacts
+    expire_in: 1 day
+
+rust-latest-arti-extra-features:
+  stage: test
+  # Using "amd64/" single-arch variant to work around https://gitlab.torproject.org/tpo/tpa/team/-/issues/41621.
+  image: docker.io/amd64/rust:trixie
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - *rust-recent-arti-extra-features-script
+
+rust-recent-async-std-rustls:
+  needs: []
+  stage: build
+  image: $RECENT_RUST_IMAGE
+  script:
+    - rustup show
+    - rustup component add clippy
+    - cd crates/arti-client && cargo clippy --no-default-features --features=async-std,rustls
+
+rust-clippy-nontest:
+  needs: []
+  stage: test
+  image: $RECENT_RUST_IMAGE
+  script:
+    - rustup show
+    - rustup component add clippy
+    - mv -f clippy-nontest.toml clippy.toml
+    - cargo clippy --all-features --workspace -- -D warnings
+
+rust-nightly:
+  needs: []
+  stage: test
+  image: docker.io/rustlang/rust:nightly
+  # mitigate https://gitlab.torproject.org/tpo/tpa/team/-/issues/42317
+  timeout: 2h
+  # In case there is a bug in rust:nightly, you can instead pin an older
+  # version of the Docker image until that bug is fixed.  To find the
+  # SHA256 ID of the last working version of nightly, look at the logs
+  # from the last successful CI run.  Here is an example of how to do so:
+  #
+  # image: rustlang/rust@sha256:415b7c22ab4a8a3ec3efc9cc8d7b018964f0c6757fff27bbd110e0ed92566321
+  allow_failure: true
+  script:
+    - rustup show
+    - cargo build --target x86_64-unknown-linux-gnu --all-features
+    - cargo test --target x86_64-unknown-linux-gnu --all-features
+    - rustup component add clippy
+    # We check these extra warnings on CI only, since we don't want to forbid them while developing.
+
+    - (echo; cat clippy-nightly.toml) >>clippy.toml
+    - ./maint/add_warning --ci-nightly
+    - cargo clippy --all-features --tests -- -D clippy::dbg_macro
+    - RUSTDOCFLAGS="-Dwarnings --cfg docsrs" cargo doc --all-features --document-private-items --no-deps
+
+deb-source:
+  needs: []
+  stage: test
+  image: $RECENT_RUST_IMAGE
+  script:
+    - git clean -xdff
+    - export DEB_VERSION_UPSTREAM=$(dpkg-parsechangelog -SVersion | sed -E 's/-[^-]*$$//')
+    - git archive -o ../arti_${DEB_VERSION_UPSTREAM}.orig.tar.gz --prefix arti-${DEB_VERSION_UPSTREAM}/ HEAD
+    - dpkg-source -b .
+    - mv ../arti*.tar.gz ../arti*.dsc ../arti*.tar.xz .
+  artifacts:
+    paths:
+      - "*.tar.gz"
+      - "*.dsc"
+      - "*.tar.xz"
+
+deb-binary-amd64:
+  needs: []
+  stage: test
+  image: $RECENT_RUST_IMAGE
+  script:
+    - apt-get update && apt-get build-dep -y .
+    # TODO: re-enable testing (tests are currently killed for some unidentified reason)
+    - dpkg-buildpackage -uc -b --build-profiles=nocheck
+    - mv ../arti*.deb ../*.changes ../*.buildinfo .
+  artifacts:
+    paths:
+      - "*.deb"
+      - "*.changes"
+      - "*.buildinfo"
+  tags:
+    - amd64
+
+# Note: big-endian targets do not compile due to lack of support from the merlin
+# crate, needed by the 'batch' feature of ed25519-dalek. A fix seems available
+# (https://github.com/zkcrypto/merlin/pull/5) and forking merlin was discussed
+# by the developers of ed25519-dalek (https://github.com/dalek-cryptography/ed25519-dalek/issues/228).
+.deb-binary-cross-template:
+  stage: test
+  variables:
+    # To be overridden in template instantiations
+    CROSS_ARCH: UNDEFINED--BUG-IN-CI-YAML
+    RUST_CROSS_TARGET: UNDEFINED--BUG-IN-CI-YAML
+  image: $RECENT_RUST_IMAGE
+  script:
+    - dpkg --add-architecture ${CROSS_ARCH}
+    - maint/common/apt-install build-essential crossbuild-essential-${CROSS_ARCH} && apt-get build-dep -y -a${CROSS_ARCH} .
+    - rustup target add ${RUST_CROSS_TARGET}
+    - CONFIG_SITE=/etc/dpkg-cross/cross-config.${CROSS_ARCH} dpkg-buildpackage -uc -b -a${CROSS_ARCH} --build-profiles=cross,nocheck
+    - mv ../arti*.deb ../*.changes ../*.buildinfo .
+  artifacts:
+    paths:
+      - "*.deb"
+      - "*.changes"
+      - "*.buildinfo"
+  tags:
+    - amd64
+
+deb-binary-arm64:
+  needs: []
+  extends: .deb-binary-cross-template
+  variables:
+    CROSS_ARCH: arm64
+    RUST_CROSS_TARGET: aarch64-unknown-linux-gnu
+
+cargo-miri:
+  needs: []
+  stage: test
+  # for local testing,
+  #   rustup toolchain add nightly-2025-10-24
+  #   rustup component add --toolchain nightly-2025-10-24 miri
+  #   cargo +nightly-2025-10-24 miri setup
+  #   cargo +nightly-2025-10-24 miri test ...
+  # to update this
+  #  1. choose a new Nightly version, for example according to these instructions
+  #      https://gitlab.torproject.org/Diziet/rust-derive-deftly/-/blob/main/macros/HACKING.md?ref_type=heads#choose-which-nightly-rust-version-to-update-to
+  #  2. insert the new image hash, and corresponding nightly date, above
+  image: rustlang/rust@sha256:26897f428c9e97bba6a734473115608461f3f01cb9ce7ed4c4b568ac83c769a1
+  # ^ this is from tags.2025-10-24T13:08+00:00.gz (see HACKING.md)
+  script:
+    - rustup component add miri
+    # TOOD use miri test more of our crates-containing-unsafe
+    - cargo miri test --all-features -p tor-memquota -p tor-rtcompat -p tor-rtmock -p tor-persist
+
+coverage:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  stage: test
+  image: $RECENT_RUST_IMAGE
+  # mitigate https://gitlab.torproject.org/tpo/tpa/team/-/issues/42317
+  timeout: 2h
+  script:
+    - maint/common/apt-install python3-pip python3-setuptools python3-bs4 python3-lxml
+    - rustup component add llvm-tools
+    - ./maint/common/via-cargo-install-in-ci grcov
+    # Generate report
+    - ./maint/with_coverage -f cobertura -o coverage.xml cargo test --all-features
+  cache:
+    paths:
+      - cache
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+  tags:
+    - tpa
+
+minimal-versions:
+  stage: test
+  # Using "amd64/" single-arch variant to work around https://gitlab.torproject.org/tpo/tpa/team/-/issues/41621.
+  image: docker.io/amd64/rust:1.86
+  needs: []
+  script:
+    - rustup install nightly
+    - ./maint/downgrade_dependencies
+    - cargo test --target x86_64-unknown-linux-gnu --all-features
+
+.build-repro-template:
+  needs: []
+  stage: test
+  variables:
+    # To be overridden in template instantiations
+    TARGET: UNDEFINED--BUG-IN-CI-YAML
+  # If you upgrade this image, also change the one in docker_reproducible_build.
+  # Using "amd64/" single-arch variant to work around https://gitlab.torproject.org/tpo/tpa/team/-/issues/41621.
+  image: docker.io/amd64/rust:1.91.0-alpine3.22
+  script:
+    - apk add bash
+    - ./maint/reproducible_build $TARGET
+  # no after_script:, we don't build in the project dir
+  # TODO #1410: Maybe there is something we _can_ remove though?
+  artifacts:
+    expire_in: 1 day
+  tags:
+    - tpa
+    - amd64
+
+build-repro-linux:
+  extends: .build-repro-template
+  variables:
+    TARGET: linux
+  artifacts:
+    paths:
+      - arti-linux
+
+build-repro-windows:
+  extends: .build-repro-template
+  variables:
+    TARGET: windows
+  artifacts:
+    paths:
+      - arti-windows.exe
+
+build-repro-macos:
+  extends: .build-repro-template
+  variables:
+    TARGET: macos
+  artifacts:
+    paths:
+      - arti-macos
+  cache:
+    paths:
+      - osxcross/target
+
+# We use shadow in multiple tests. Build it here once.
+build-shadow:
+  needs: []
+  stage: build
+  variables:
+    JOB_SHADOW_REPO: "https://github.com/shadow/shadow.git"
+    JOB_SHADOW_BRANCH: "main"
+    # Last updated 2025-11-03
+    JOB_SHADOW_COMMIT: "248bf5f7fa9f45c8caee2e1b57746fcd729e3fe5"
+  artifacts:
+    paths:
+      - opt/shadow
+    # Intended for consumption later in the pipeline; no need to keep them
+    # around for longer.
+    expire_in: 1 day
+  cache:
+    - key: $CI_JOB_NAME-shadow-$JOB_SHADOW_COMMIT
+      paths:
+      - opt/shadow
+  tags:
+    - amd64
+  script:
+    # Build shadow
+    - |
+      if [ -f opt/shadow/bin/shadow ]
+      then
+        echo "Using shadow binary from cache"
+      else
+        echo "Building shadow"
+        maint/common/apt-install git
+        git clone --shallow-since=2021-08-01 -b $JOB_SHADOW_BRANCH $JOB_SHADOW_REPO ~/src/shadow
+        cd ~/src/shadow
+        git checkout $JOB_SHADOW_COMMIT
+        export CC=gcc CXX=g++ CONTAINER=debian:12-slim BUILDTYPE=release RUSTPROFILE=minimal
+        ci/container_scripts/install_deps.sh
+        ci/container_scripts/install_extra_deps.sh
+        export PATH="$HOME/.cargo/bin:${PATH}"
+        ./setup build --jobs $(nproc) --prefix $CI_PROJECT_DIR/opt/shadow
+        ./setup install
+      fi
+
+integration-chutney:
+  stage: test
+  rules:
+   # Job never runs.  See arti#810.
+   - when: never
+  script:
+    - ./maint/preserve -u
+    - maint/common/apt-install tor git python3 curl dnsutils python3-pip python3-venv jq
+
+    # arti runtime dependencies
+    - maint/common/apt-install libsqlite3-0 libssl3
+
+    # install chutney.
+    - python3 -m venv --system-site-packages $HOME/job-venv
+    - source $HOME/job-venv/bin/activate
+    - python3 -m pip install
+        git+https://gitlab.torproject.org/tpo/core/chutney.git@"$CHUTNEY_COMMIT"
+
+    - tests/chutney/integration-e2e
+  artifacts:
+    paths:
+      - benchmark_results.json
+      # chutney network including tor logs etc
+      - nodes.*/
+
+# Runs the chutney integration test under shadow.
+integration-chutney-shadow:
+  stage: test
+  needs: ["build-shadow", "rust-recent-integration"]
+  tags:
+    - amd64
+    # Non-TPA runners may not support running shadow.
+    - tpa
+  script:
+    - ./maint/preserve -u
+
+    # Add tor deb repository to get recent c-tor
+    - maint/add-deb-torproject-org bookworm
+
+    - maint/common/apt-install
+        tor
+        git
+        python3
+        curl
+        dnsutils
+        stow
+        python3-yaml
+        python3-pip
+        python3-venv
+        jq
+
+    # arti runtime dependencies
+    - maint/common/apt-install libsqlite3-0 libssl3
+
+    # install chutney.
+    - python3 -m venv --system-site-packages $HOME/job-venv
+    - source $HOME/job-venv/bin/activate
+    - python3 -m pip install
+        git+https://gitlab.torproject.org/tpo/core/chutney.git@"$CHUTNEY_COMMIT"
+
+    # Set up shadow, built in build-shadow
+    - maint/common/apt-install libglib2.0-0
+    - stow -d opt -t $HOME/.local shadow
+
+    # Select a random simulation seed to avoid "dooming"
+    # an unlucky MR that hits a low-probability bug.
+    - SEED=$(date +%s)
+
+    - tests/chutney/integration-e2e-shadow --seed="$SEED"
+  artifacts:
+    paths:
+      - benchmark_results.json
+      - shadow.chutney.yaml
+      - shadow.chutney.data/
+      - shadow.log
+      # chutney network including tor logs etc
+      - nodes.*/
+    when: always
+    expire_in: 1 week
+
+integration-shadow:
+  variables:
+    JOB_TGEN_REPO: "https://github.com/shadow/tgen.git"
+    JOB_TGEN_BRANCH: "main"
+    JOB_TGEN_COMMIT: "v1.1.2"
+  stage: test
+  needs: ["build-shadow", "rust-recent-integration", "rust-recent-arti-extra-features"]
+  cache:
+    - key: $CI_JOB_NAME-shadow-$JOB_SHADOW_COMMIT
+      paths:
+      - opt/shadow
+    - key: $CI_JOB_NAME-tgen-$JOB_TGEN_COMMIT
+      paths:
+      - opt/tgen
+  script:
+    - ./maint/preserve -u
+
+    # Add tor deb repository to get recent c-tor
+    - section_start "Add tor dpkg repo"
+    - maint/add-deb-torproject-org bookworm
+
+    - section_start "Install utility packages"
+    - maint/common/apt-install git tor obfs4proxy stow tshark
+
+    - section_start "Install arti runtime dependencies"
+    - maint/common/apt-install libsqlite3-0 libssl3
+
+    - section_start "Set up shadow, built in build-shadow"
+    - maint/common/apt-install libglib2.0-0
+    - stow -d opt -t $HOME/.local shadow
+
+    - section_start "Setup tgen"
+    - |
+      if [ -f opt/tgen/bin/tgen ]
+      then
+        echo "Using tgen binary from cache"
+      else
+        echo "Building tgen"
+        maint/common/apt-install cmake gcc libglib2.0-0 libglib2.0-dev libigraph-dev make
+        git clone --shallow-since=2022-01-01 -b $JOB_TGEN_BRANCH $JOB_TGEN_REPO ~/src/tgen
+        pushd ~/src/tgen
+        git checkout $JOB_TGEN_COMMIT
+        mkdir build
+        cd build
+        cmake .. -DCMAKE_INSTALL_PREFIX=$CI_PROJECT_DIR/opt/tgen
+        make --jobs $(nproc)
+        make install
+        popd
+      fi
+    - maint/common/apt-install libigraph3 libglib2.0-0
+    - stow -d opt -t $HOME/.local tgen
+
+    # Ensure newly installed executables can be found
+    - hash -r
+
+    # Select a random simulation seed to avoid "dooming"
+    # an unlucky MR that hits a low-probability bug.
+    - SEED=$(date +%s)
+
+    - section_start "Run shadow test"
+    - pushd tests/shadow
+    - ./run -s "$SEED"
+    - section_end
+  artifacts:
+    paths:
+      - tests/shadow
+    when: always
+    expire_in: 1 week
+  tags:
+    - amd64
+    # Non-TPA runners may not support running shadow.
+    - tpa
+
+rust-recent-test-all-features:
+  needs: []
+  stage: test
+  image: $RECENT_RUST_IMAGE
+  # mitigate https://gitlab.torproject.org/tpo/tpa/team/-/issues/42317
+  timeout: 2h
+  script:
+    - rustup show
+    - cargo test --target x86_64-unknown-linux-gnu --locked --workspace --all-features
+
+every-crate:
+  stage: test
+  image: $RECENT_RUST_IMAGE
+  # mitigate https://gitlab.torproject.org/tpo/tpa/team/-/issues/42317
+  timeout: 2h
+  needs: []
+  script:
+    - maint/common/apt-install python3-toml
+    - ./maint/every-crate
+
+matrix-check:
+  stage: test
+  image: $RECENT_RUST_IMAGE
+  needs: []
+  script:
+    - maint/common/apt-install python3-toml
+    - ./maint/matrix-check --parallel "5,$PARALLEL_N"
+  parallel:
+    matrix:
+      - PARALLEL_N:
+        - 0
+        - 1
+        - 2
+        - 3
+        - 4
+
+minimal-features-test:
+  needs: []
+  stage: test
+  image: $RECENT_RUST_IMAGE
+  # mitigate https://gitlab.torproject.org/tpo/tpa/team/-/issues/42317
+  timeout: 2h
+  script:
+    # See crates/arti/build.rs.  Here, rather than in `variables:`, so it appears in the log.
+    - export RUSTFLAGS="$RUSTFLAGS --cfg arti_features_precise"
+    - maint/common/apt-install python3-toml
+    - maint/test-all-crates --enable-conditional-options=minimal --parallel "3,$PARALLEL_N" -- --target x86_64-unknown-linux-gnu --no-default-features
+  parallel:
+    matrix:
+      - PARALLEL_N:
+        - 0
+        - 1
+        - 2
+
+matrix-test-cfg:
+  needs: []
+  stage: test
+  image: $RECENT_RUST_IMAGE
+  script:
+    - ./maint/matrix_test_cfg
+
+# TODO: consider removing this in favor of cli-test
+cli-help:
+  needs: []
+  stage: test
+  image: $RECENT_RUST_IMAGE
+  script:
+    - ./maint/check-cli-help
+
+# TODO: in the future we may want to build and run the fuzz tests, but checking is good enough for now
+# https://gitlab.torproject.org/tpo/core/arti/-/issues/1350
+fuzz-check:
+  stage: test
+  # cargo-fuzz needs nightly
+  image: docker.io/rustlang/rust:nightly
+  # fuzz tests don't currently build
+  allow_failure: true
+  # this job doesn't depend on anything
+  needs: []
+  script:
+    - ./maint/common/apt-install libclang-dev
+    - rustup show
+    - ./maint/common/via-cargo-install-in-ci cargo-fuzz --version 0.13.1
+    - ./maint/fuzz_it_all -c
+
+# TODO: this should be folded in one of the other test jobs.
+#
+# Since this is testing an additional combination of features,
+# ideally it would be handled by the matrix_test script,
+# but matrix_test runs cargo check, and we would like to cargo *test*.
+cli-test:
+  needs: []
+  stage: test
+  image: $RECENT_RUST_IMAGE
+  script:
+    # The rust-latest job runs the CLI tests with all features enabled.
+    # This job runs the CLI tests with various feature combinations that aren't
+    # covered by the other tests
+    - cargo test --target x86_64-unknown-linux-gnu -p arti cli_tests
+    - cargo test --target x86_64-unknown-linux-gnu -p arti --features experimental cli_tests
+
+coverage-aggregated:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  stage: test
+  image: $RECENT_RUST_IMAGE
+  needs: []
+  script:
+    - maint/common/apt-install tor python3 python3-pip python3-setuptools curl python3-bs4 python3-lxml
+    - rustup component add llvm-tools
+    - ./maint/common/via-cargo-install-in-ci grcov
+    # Generate report
+    - ./maint/coverage unit
+  cache:
+    paths:
+      - cache
+  artifacts:
+    paths:
+      - coverage
+  tags:
+    - ipv6
+
+check-targets:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  stage: test
+  image: $RECENT_RUST_IMAGE
+  script:
+    - ./maint/cargo_check_target -il
+
+pages:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $CI_COMMIT_REF_NAME == "main"
+  stage: deploy
+  image: docker.io/node:lts
+  script:
+    # Install tools needed.
+    - maint/common/apt-install git
+    # Export report as website, while keeping the existing public page.
+    - git fetch
+    # Checkout the old website.
+    - git checkout origin/pages -- public
+    - mv public old-website
+    # Build Docusaurus website.
+    - cd web
+    - yarn install
+    - yarn run build
+    - cd ..
+    - mv web/build public
+    # Add Coverage from previous job to the /coverage of the webroot.
+    - if test -d coverage ; then mv coverage public; fi
+    # Make the old site available under /old of the webroot.
+    - mv old-website public/old
+  artifacts:
+    paths:
+      - public

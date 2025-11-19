@@ -1,0 +1,41 @@
+[package]
+name = "tor-basic-utils"
+version = "0.36.0"
+authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
+edition = "2024"
+rust-version = "1.86"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "General helpers used by Tor"
+keywords = ["tor", "arti"]
+# We must put *something* here and this will do
+categories = ["rust-patterns"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+
+[dependencies]
+derive_more = { version = "2.0.1", features = ["full"] }
+hex = "0.4"
+itertools = "0.14.0"
+paste = "1"
+rand = "0.9.1"
+rand_chacha = "0.9"
+serde = { version = "1.0.103", optional = true, features = ["derive"] }
+slab = "0.4.4"
+smallvec = "1.10"
+thiserror = "2"
+
+[dev-dependencies]
+derive_more = { version = "2.0.1", features = ["full"] }
+educe = "0.4.22"
+serde = { version = "1.0.103", features = ["derive"] }
+serde-value = "0.7.0"
+serde_json = "1.0.50"
+
+[features]
+full = ["serde"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2", default-features = false }

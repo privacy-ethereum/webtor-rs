@@ -8,7 +8,7 @@ repository.workspace = true
 description = "WebAssembly bindings for webtor"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 webtor = { path = "../webtor" }
@@ -21,11 +21,13 @@ web-sys = { workspace = true }
 serde-wasm-bindgen = { workspace = true }
 
 # Async runtime for WASM
-wasm-bindgen-futures = { workspace = true }
+futures = { workspace = true }
 
 # Logging
 tracing = { workspace = true }
 tracing-wasm = { workspace = true }
+# Use gloo-console or simple wrapper for console_log!
+gloo-console = "0.3"
 
 # Error handling
 anyhow = { workspace = true }
@@ -38,35 +40,6 @@ getrandom = { workspace = true }
 # Serialization
 serde = { workspace = true }
 serde_json = "1.0"
-
-[dependencies.web-sys]
-version = "0.3"
-features = [
-  "console",
-  "WebSocket",
-  "MessageEvent",
-  "CloseEvent",
-  "ErrorEvent",
-  "Event",
-  "EventTarget",
-  "Blob",
-  "FileReader",
-  "Response",
-  "Request",
-  "Headers",
-  "RequestInit",
-  "Window",
-  "Document",
-  "Element",
-  "HtmlElement",
-  "HtmlInputElement",
-  "HtmlButtonElement",
-  "HtmlTextAreaElement",
-  "Text",
-  "Node",
-  "NodeList",
-  "DocumentFragment",
-]
 
 [dev-dependencies]
 wasm-bindgen-test = { workspace = true }

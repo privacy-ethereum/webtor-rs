@@ -1,0 +1,46 @@
+[package]
+name = "arti-testing"
+version = "0.17.0"
+authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
+edition = "2024"
+rust-version = "1.86"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "Tools for testing the Arti Tor implementation."
+keywords = ["tor", "arti", "privacy", "anonymity"]
+categories = ["command-line-utilities", "cryptography"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+publish = false
+
+[features]
+full = [
+    "arti/full",
+    "arti-client/full",
+    "tor-config/full",
+    "tor-dirmgr/full",
+    "tor-netdoc/full",
+    "tor-rtcompat/full",
+    "tor-basic-utils/full",
+]
+
+[dependencies]
+anyhow = "1.0.23"
+arti = { package = "arti", path = "../arti", version = "1.7.0" }
+arti-client = { package = "arti-client", path = "../arti-client", version = "0.36.0", features = ["dirfilter"] }
+async-trait = "0.1.54"
+clap = { version = "4.3.24", features = ["wrap_help"] }
+futures = "0.3.14"
+pin-project = "1"
+rand = "0.9.1"
+tokio = { version = "1.7", features = ["signal", "macros"] }
+tor-basic-utils = { path = "../tor-basic-utils", version = "0.36.0" }
+tor-config = { path = "../tor-config", version = "0.36.0" }
+tor-dirmgr = { package = "tor-dirmgr", path = "../tor-dirmgr", version = "0.36.0", features = ["dirfilter"] }
+tor-netdoc = { package = "tor-netdoc", path = "../tor-netdoc", version = "0.36.0", features = [
+    "experimental-api",
+] }
+tor-rtcompat = { path = "../tor-rtcompat", version = "0.36.0" }
+tracing = "0.1.36"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+[package.metadata.docs.rs]
+all-features = true

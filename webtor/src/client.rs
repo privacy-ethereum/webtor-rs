@@ -6,7 +6,14 @@ use crate::error::{Result, TorError};
 use crate::http::{HttpRequest, HttpResponse, TorHttpClient};
 use crate::relay::RelayManager;
 use crate::snowflake::create_snowflake_stream;
-use reqwest::Method;
+use crate::wasm_runtime::WasmRuntime;
+use tor_proto::channel::ChannelBuilder;
+use http::Method;
+use tor_memquota::MemoryQuotaTracker;
+use tor_proto::memquota::{ChannelAccount, SpecificAccount};
+use tor_linkspec::{OwnedChanTargetBuilder, ChanTarget};
+use tor_llcrypto::pk::{ed25519::Ed25519Identity, rsa::RsaIdentity};
+use std::time::{Instant, SystemTime};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -19,6 +26,8 @@ pub struct TorClient {
     circuit_manager: Arc<RwLock<CircuitManager>>,
     http_client: Arc<TorHttpClient>,
     is_initialized: Arc<RwLock<bool>>,
+    // Store the channel to prevent it from being dropped
+    channel: Arc<RwLock<Option<Arc<tor_proto::channel::Channel>>>>,
     update_task: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
 }
 
@@ -40,6 +49,7 @@ impl TorClient {
             circuit_manager: Arc::new(RwLock::new(circuit_manager)),
             http_client: Arc::new(http_client),
             is_initialized: Arc::new(RwLock::new(false)),
+            channel: Arc::new(RwLock::new(None)),
             update_task: Arc::new(RwLock::new(None)),
         };
         
@@ -178,17 +188,84 @@ impl TorClient {
         *self.is_initialized.write().await = false;
         info!("Tor client closed");
     }
-    
+
     /// Create initial circuit (called during construction)
     async fn create_initial_circuit(&self) -> Result<()> {
         self.log("Creating initial circuit", LogType::Info);
         
-        // For now, this is a placeholder
-        // In the full implementation, this would:
-        // 1. Connect to Snowflake bridge
-        // 2. Create Tor connection
-        // 3. Build initial circuit through relays
+        let snowflake_url = &self.options.snowflake_url;
+        let timeout = Duration::from_millis(self.options.connection_timeout);
         
+        // 1. Connect to Snowflake bridge
+        let stream = create_snowflake_stream(snowflake_url, timeout).await?;
+        self.log("Connected to Snowflake bridge", LogType::Success);
+        
+        // 2. Create Tor channel
+        // We need a runtime and memquota account
+        let runtime = WasmRuntime::new();
+        
+        // Create a no-op memory quota for now
+        let mq = MemoryQuotaTracker::new_noop();
+        
+        // Create ChannelAccount directly from tracker
+        let chan_account = ChannelAccount::new(&mq)
+             .map_err(|e| TorError::Internal(format!("Failed to create channel account: {}", e)))?;
+
+        let builder = ChannelBuilder::new();
+        let handshake = builder.launch_client(stream, runtime, chan_account);
+        
+        let unverified = handshake.connect(|| SystemTime::now()).await
+            .map_err(|e| TorError::Network(format!("Handshake connect failed: {}", e)))?;
+            
+        // Construct peer target
+        let mut builder = OwnedChanTargetBuilder::default();
+        
+        // Use provided bridge fingerprint if available
+        let mut identity_set = false;
+        
+        if let Some(ref fingerprint) = self.options.bridge_fingerprint {
+             if let Ok(bytes) = hex::decode(fingerprint) {
+                 if bytes.len() == 20 {
+                     if let Some(rsa_id) = RsaIdentity::from_bytes(&bytes) {
+                         builder.rsa_identity(rsa_id);
+                         identity_set = true;
+                     }
+                 }
+             }
+        }
+        
+        // If no valid identity was set, fail early
+        if !identity_set {
+            return Err(TorError::Configuration("Bridge fingerprint is required for Snowflake connection".to_string()));
+        }
+            
+        let peer = builder.build()
+            .map_err(|e| TorError::Internal(format!("Failed to build peer target: {}", e)))?;
+
+        let channel = unverified.check(&peer, &[], None) // Empty cert for now
+            .map_err(|e| TorError::Network(format!("Handshake check failed: {}", e)))?
+            .finish()
+            .await
+            .map_err(|e| TorError::Network(format!("Handshake finish failed: {}", e)))?;
+            
+        // channel is (Arc<Channel>, Reactor)
+        let (chan, reactor) = channel;
+        
+        // Store the channel to keep it alive
+        *self.channel.write().await = Some(chan);
+        
+        // Spawn reactor
+        // We need to spawn the reactor on our runtime (or just spawn_local since we are on WASM)
+        #[cfg(target_arch = "wasm32")]
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = reactor.run().await;
+        });
+        
+        #[cfg(not(target_arch = "wasm32"))]
+        tokio::spawn(async move {
+            let _ = reactor.run().await;
+        });
+
         *self.is_initialized.write().await = true;
         self.log("Initial circuit created", LogType::Success);
         
@@ -206,7 +283,7 @@ impl TorClient {
     /// Log a message (uses callback if provided)
     fn log(&self, message: &str, log_type: LogType) {
         if let Some(ref on_log) = self.options.on_log {
-            on_log(message, log_type);
+            (on_log.0)(message, log_type);
         } else {
             // Default logging
             match log_type {
@@ -235,6 +312,7 @@ impl Clone for TorClient {
             circuit_manager: self.circuit_manager.clone(),
             http_client: self.http_client.clone(),
             is_initialized: self.is_initialized.clone(),
+            channel: self.channel.clone(),
             update_task: self.update_task.clone(),
         }
     }

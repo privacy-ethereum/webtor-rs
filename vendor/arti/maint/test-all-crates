@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+
+# This differs from matrix-check in the following ways:
+#   - it only tests one combination of features, as specified on the command line
+#   - it doesn't have crate-specific hacks (or any knowledge of our workspace contents)
+#     (but it does read some ad-hoc parseable comments from Cargo.toml's).
+#   - it runs `cargo test`
+
+import argparse
+import subprocess
+import sys
+import list_crates
+
+
+def test_crate(args, c):
+    conditional_options = []
+
+    for line in open(c.subdir + "/Cargo.toml"):
+
+        # TODO do something more formal here
+        #
+        # We need this because some crates don't compile without a runtime selected.
+        #
+        # Ideally, if the crate doesn't compile without any features selected,
+        # the manifest should have a `minimal` feature we can use, or something.
+        if line.startswith("# @@ test-all-crates ignore"):
+            print(
+                """(
+(((((((((( skipping %s ))))))))))
+)"""
+                % c.name,
+                file=sys.stderr,
+            )
+            return
+
+        conditional_option_directive = "# @@ test-all-crates conditional-option "
+        # One option per line, so it can contain spaces
+        if line.startswith(conditional_option_directive):
+            (key, option) = (
+                line[len(conditional_option_directive) :].rstrip().split(maxsplit=1)
+            )
+            if key in args.enable_conditional_options:
+                conditional_options.append(option)
+            continue
+
+    command_sh = 'p=$1; shift; set -x; $CARGO test -p $p "$@"'
+
+    print(
+        """:
+:::::::::: %s ::::::::::
+:"""
+        % c.name,
+        file=sys.stderr,
+    )
+
+    # We run a separate build command for each one, to defeat cargo feature unification.
+
+    command_l = (
+        [
+            "sh",
+            "-ec",
+            ': "${CARGO:=cargo --locked}"; ' + command_sh,
+            "x",
+            c.name,
+        ]
+        + args.cargo_option
+        + conditional_options
+    )
+
+    child = subprocess.run(command_l)
+
+    if child.returncode != 0:
+        print(
+            """failed command %s
+"return code" %s
+failed to test crate %s"""
+            % (repr(command_l), child.returncode, c.name),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+# https://stackoverflow.com/questions/24483182/python-split-list-into-n-chunks
+def chunks(lst, n):
+    """
+    Yield n number of chunks from lst.
+
+    This is a striped chunk, meaning that rather than making contiguous chunks, each chunk is made
+    up of elements that are n spaces apart in the input list. This has the advantage of making
+    sure that the lists are as close to evenly sized as possible, even if the input list length is
+    not divisible by n.
+    """
+    for i in range(0, n):
+        yield lst[i::n]
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="test-all-crates")
+    parser.add_argument("cargo_option", nargs="*")
+    parser.add_argument("--enable-conditional-options", action="append", default=[])
+    parser.add_argument("--skip-until", action="store", default=None)
+    parser.add_argument(
+        "--parallel",
+        type=str,
+        default="1,0",
+        help="Split the checking into multiple chunks and run only a single one of the chunks. "
+        "Takes two comma-separated integers, the first is the number of chunks, "
+        "the second is which chunk to run (zero-indexed)."
+        "This assumes that the set of crates that exist is the same between all invocations.",
+    )
+    args = parser.parse_args()
+
+    parallel_chunks, parallel_n = map(int, args.parallel.split(","))
+    assert parallel_n < parallel_chunks
+
+    skip_until = args.skip_until
+
+    crates = sorted(list_crates.list_crates(), key=lambda crate: crate.name)
+
+    for crate in list(chunks(crates, parallel_chunks))[parallel_n]:
+        if skip_until is not None:
+            if skip_until == crate.name:
+                skip_until = None
+            else:
+                print(
+                    "skipping due to --skip-until %s: %s" % (skip_until, crate.name),
+                    file=sys.stderr,
+                )
+                continue
+
+        test_crate(args, crate)
+
+
+main()

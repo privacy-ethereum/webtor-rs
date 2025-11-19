@@ -1,0 +1,35 @@
+[package]
+name = "hyper-examples"
+version = "0.2.0"
+authors = ["The Tor Project, Inc.", "Ramid Khan <ramidzkh@gmail.com>", "Niel Duysters"]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Examples demonstrating the usage of Arti with hyper"
+publish = false
+
+[features]
+full = [
+    "arti-client/full",
+    "safelog/full",
+    "tor-cell/full",
+    "tor-hsservice/full",
+    "tor-proto/full",
+]
+
+[dependencies]
+anyhow = "1.0.97"
+arti-client = { path = "../../crates/arti-client", version = "0.36", features = ["onion-service-service"] }
+futures = "0.3.14"
+http = "1.3.1"
+http-body-util = "0.1.0"
+hyper = { version = "1.6", features = ["http1", "client", "server"] }
+hyper-util = { version = "0.1.11", features = ["tokio"] }
+safelog = { path = "../../crates/safelog", version = "0.7" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+tokio-native-tls = "0.3.1"
+tokio-util = "0.7.10"
+tor-cell = { path = "../../crates/tor-cell", version = "0.36" }
+tor-hsservice = { path = "../../crates/tor-hsservice", version = "0.36" }
+tor-proto = { path = "../../crates/tor-proto", version = "0.36" }
+tracing-subscriber = "0.3.20"
+webpki-roots = "1.0.2"

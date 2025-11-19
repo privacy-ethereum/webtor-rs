@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [ -z "${LLVM_PROFILE_FILE:-}" ]; then
+    echo "This script is meant to be run inside with_coverage" >&2
+    exit 1
+fi
+
+coverage_dir=$(dirname "$LLVM_PROFILE_FILE")
+
+TOPDIR=$(realpath "$(dirname "$0")/..")
+cd "$TOPDIR"
+
+# set an alternative target directory so it's possible to reuse cached artifacts between coverage 
+# runs of coverage and fuzzing.
+export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-target-coverage}
+
+for d in ./crates/*/fuzz; do
+    pushd "$(dirname "$d")"
+    crate=$(basename "$(dirname "$d")")
+    mkdir -p "$TOPDIR/target/debug/$crate"
+    mkdir -p "$coverage_dir/$crate"
+    for fuzzer in $(cargo fuzz list); do
+	# disable sanitizer to work in stable. Also make curve25519-dalek compilation much faster
+        cargo fuzz coverage "$fuzzer" --sanitizer=none
+
+        # we copy binary and coverage data where with_coverage expect it to be
+        cp "target-coverage/x86_64-unknown-linux-gnu/release/$fuzzer" "$TOPDIR/target/debug/$crate/$fuzzer"
+        mv "fuzz/coverage/$fuzzer/raw" "$coverage_dir/$crate/$fuzzer"
+    done
+    popd
+done

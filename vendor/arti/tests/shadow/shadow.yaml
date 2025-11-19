@@ -1,0 +1,607 @@
+# Some light templatization.
+# See <https://shadow.github.io/docs/guide/shadow_config_complex.html>
+x-constants:
+ # Where to find arti bins
+ - &Arti "../../target/x86_64-unknown-linux-gnu/quicktest/arti"
+ - &ArtiExtra "../../target/x86_64-unknown-linux-gnu/quicktest/arti-extra"
+
+general:
+  stop_time: 60 min
+  model_unblocked_syscall_latency: True
+experimental:
+  # shadow only actually increments simulated time (and potentially
+  # switches threads) if this much time would have been consumed by an
+  # unbroken sequence of unblocked syscalls. Using a relatively large
+  # value here (vs the default 1us) makes the simulation scheduling
+  # more stable and predictable; e.g. adding additional logging to
+  # debug an issue is less likely to make the issue disappear.
+  #
+  # The primary tradeoffs are:
+  # * Time will move forward at a larger granularity when unblocked syscall
+  #   latency is applied. 10ms is still small enough though that this
+  #   shouldn't be terribly strange; e.g. larger time jumps are likely
+  #   to be observed on over-loaded systems with normal preemptive
+  #   scheduling.
+  # * when the simulation does hit a
+  #   busy loop, it may spend a bit longer "spinning" before moving
+  #   time forward, potentially causing the simulation to take a bit
+  #   longer to run. (if it would have otherwise timed out earlier than 10ms)
+  max_unapplied_cpu_latency: "10ms"
+network:
+  graph:
+    type: gml
+    inline: |
+      graph [
+        directed 0
+        node [
+          id 0
+          host_bandwidth_down "1 Gbit"
+          host_bandwidth_up "1 Gbit"
+        ]
+        edge [
+          source 0
+          target 0
+          latency "50 ms"
+          jitter "0 ms"
+          packet_loss 0.0
+        ]
+      ]
+hosts:
+  fileserver:
+    network_node_id: 0
+    processes:
+    - path: tgen
+      environment:
+        OPENBLAS_NUM_THREADS: "1"
+      args: ../../../conf/tgen.server.graphml.xml
+      start_time: 1
+      expected_final_state: running
+  fileserver-onion:
+    network_node_id: 0
+    processes:
+    - path: tgen
+      # See https://shadow.github.io/docs/guide/compatibility_notes.html#libopenblas
+      environment: { OPENBLAS_NUM_THREADS: "1" }
+      args: ../../../conf/tgen.onionserver.graphml.xml
+      start_time: 1
+      expected_final_state: running
+    - path: tor
+      args: --Address fileserver-onion --Nickname fileserveronion
+            --defaults-torrc torrc-defaults -f torrc
+      start_time: 900
+      expected_final_state: running
+  fileserver-onion-arti:
+    network_node_id: 0
+    processes:
+    # tgen server process
+    - path: tgen
+      # See https://shadow.github.io/docs/guide/compatibility_notes.html#libopenblas
+      environment: { OPENBLAS_NUM_THREADS: "1" }
+      args: ../../../conf/tgen.onionserver.graphml.xml
+      start_time: 1
+      expected_final_state: running
+      # Currently need the arti-extra binary for HS-server functionality
+    - path: *ArtiExtra
+      args:
+      - proxy
+      - -c=./arti.d/arti.common.toml
+      - -c=./arti.d/arti.extra.toml
+      - -o=proxy.socks_listen="127.0.0.1:9000"
+      - -o=onion_services.tgen_hs.proxy_ports=[["80", "127.0.0.1:8080"]]
+      - -p=0
+      - -d=0
+      - --disable-fs-permission-checks
+      # Disable console logging. (Already disabled in config file, but that
+      # currently has no effect due to #2025).
+      - -l=
+      environment:
+        RUST_BACKTRACE: "1"
+        HOME: ./home
+      start_time: 15m
+      expected_final_state: running
+  fileserver-onion-arti-auth:
+    network_node_id: 0
+    processes:
+    # tgen server process
+    - path: tgen
+      # See https://shadow.github.io/docs/guide/compatibility_notes.html#libopenblas
+      environment: { OPENBLAS_NUM_THREADS: "1" }
+      args: ../../../conf/tgen.onionserver.graphml.xml
+      start_time: 1
+      expected_final_state: running
+      # Currently need the arti-extra binary for HS-server functionality
+    - path: *ArtiExtra
+      args:
+      - proxy
+      - -c=./arti.d/arti.common.toml
+      - -c=./arti.d/arti.extra.toml
+      - -c=./arti.d/arti.onion-auth.toml
+      - -o=proxy.socks_listen="127.0.0.1:9000"
+      - -o=onion_services.tgen_hs.proxy_ports=[["80", "127.0.0.1:8080"]]
+      - -p=0
+      - -d=0
+      - --disable-fs-permission-checks
+      # Disable console logging. (Already disabled in config file, but that
+      # currently has no effect due to #2025).
+      - -l=
+      environment:
+        RUST_BACKTRACE: "1"
+        HOME: ./home
+      start_time: 900
+      expected_final_state: running
+  # Like fileserver-onion-arti, except it has full vanguards enabled
+  fileserver-onion-arti-full-vanguards:
+    network_node_id: 0
+    processes:
+    # tgen server process
+    - path: tgen
+      # See https://shadow.github.io/docs/guide/compatibility_notes.html#libopenblas
+      environment: { OPENBLAS_NUM_THREADS: "1" }
+      args: ../../../conf/tgen.onionserver.graphml.xml
+      start_time: 1
+      expected_final_state: running
+      # Currently need the arti-extra binary for HS-server functionality
+    - path: *ArtiExtra
+      args:
+      - proxy
+      - -c=./arti.d/arti.common.toml
+      - -c=./arti.d/arti.extra.toml
+      - -o=proxy.socks_listen="127.0.0.1:9000"
+      - -o=onion_services.tgen_hs.proxy_ports=[["80", "127.0.0.1:8080"]]
+      - -o=vanguards.mode="full"
+      - -p=0
+      - -d=0
+      - --disable-fs-permission-checks
+      # Disable console logging. (Already disabled in config file, but that
+      # currently has no effect due to #2025).
+      - -l=
+      environment:
+        RUST_BACKTRACE: "1"
+        HOME: ./home
+      start_time: 15m
+      expected_final_state: running
+  # Like fileserver-onion-arti, except it reads its identity keys from a C Tor
+  # keystore.
+  fileserver-onion-arti-auth-ctor:
+    network_node_id: 0
+    processes:
+    # tgen server process
+    - path: tgen
+      # See https://shadow.github.io/docs/guide/compatibility_notes.html#libopenblas
+      environment: { OPENBLAS_NUM_THREADS: "1" }
+      args: ../../../conf/tgen.onionserver.graphml.xml
+      start_time: 1
+      expected_final_state: running
+      # Currently need the arti-extra binary for HS-server functionality
+    - path: *ArtiExtra
+      args:
+      - proxy
+      - -c=./arti.d/arti.common.toml
+      - -c=./arti.d/arti.extra.toml
+      - -c=./arti.d/arti-onion-auth-ctor.toml
+      - -o=proxy.socks_listen="127.0.0.1:9000"
+      - -o=onion_services.tgen_hs.proxy_ports=[["80", "127.0.0.1:8080"]]
+      - -p=0
+      - -d=0
+      - --disable-fs-permission-checks
+      # Disable console logging. (Already disabled in config file, but that
+      # currently has no effect due to #2025).
+      - -l=
+      environment:
+        RUST_BACKTRACE: "1"
+        HOME: ./home
+      start_time: 900
+      expected_final_state: running
+  fileserver-onion-auth:
+    network_node_id: 0
+    processes:
+    - path: tgen
+      # See https://shadow.github.io/docs/guide/compatibility_notes.html#libopenblas
+      environment: { OPENBLAS_NUM_THREADS: "1" }
+      args: ../../../conf/tgen.onionserver.graphml.xml
+      start_time: 1
+      expected_final_state: running
+    - path: tor
+      args: --Address fileserver-onion-auth --Nickname fileserveronionauth
+            --defaults-torrc torrc-defaults -f torrc
+      start_time: 900
+      expected_final_state: running
+  4uthority:
+    network_node_id: 0
+    ip_addr: 100.0.0.1
+    processes:
+    - path: tor
+      args: --Address 4uthority --Nickname 4uthority
+            --defaults-torrc torrc-defaults -f torrc
+      start_time: 1
+      expected_final_state: running
+  exit1:
+    network_node_id: 0
+    processes:
+    - path: tor
+      args: --Address exit1 --Nickname exit1
+            --defaults-torrc torrc-defaults -f torrc
+      start_time: 60
+      expected_final_state: running
+  exit2:
+    network_node_id: 0
+    processes:
+    - path: tor
+      args: --Address exit2 --Nickname exit2
+            --defaults-torrc torrc-defaults -f torrc
+      start_time: 60
+      expected_final_state: running
+  relay1:
+    network_node_id: 0
+    processes:
+    - path: tor
+      args: --Address relay1 --Nickname relay1
+            --defaults-torrc torrc-defaults -f torrc
+      start_time: 60
+      expected_final_state: running
+  relay2:
+    network_node_id: 0
+    processes:
+    - path: tor
+      args: --Address relay2 --Nickname relay2
+            --defaults-torrc torrc-defaults -f torrc
+      start_time: 60
+      expected_final_state: running
+  relay3:
+    network_node_id: 0
+    processes:
+    - path: tor
+      args: --Address relay3 --Nickname relay3
+            --defaults-torrc torrc-defaults -f torrc
+      start_time: 60
+      expected_final_state: running
+  relay4:
+    network_node_id: 0
+    processes:
+    - path: tor
+      args: --Address relay4 --Nickname relay4
+            --defaults-torrc torrc-defaults -f torrc
+      start_time: 60
+      expected_final_state: running
+  bridge:
+    ip_addr: 100.0.0.2
+    network_node_id: 0
+    processes:
+    - path: tor
+      args: --Address bridge --Nickname bridge
+            --defaults-torrc torrc-defaults -f torrc
+      start_time: 60
+      expected_final_state: running
+  bridge-obfs4:
+    ip_addr: 100.0.0.3
+    network_node_id: 0
+    processes:
+    - path: tor
+      args: --Address bridge-obfs4 --Nickname bridgeobfs4
+            --defaults-torrc torrc-defaults -f torrc
+      start_time: 60
+      expected_final_state: running
+  articlient:
+    network_node_id: 0
+    host_options:
+    processes:
+    - path: *Arti
+      args:
+      - proxy
+      - -c=./arti.d/arti.common.toml
+      - -o=proxy.socks_listen="127.0.0.1:9000"
+      - --disable-fs-permission-checks
+      # Disable console logging. (Already disabled in config file, but that
+      # currently has no effect due to #2025).
+      - -l=
+      environment:
+        RUST_BACKTRACE: "1"
+        HOME: ./home
+      start_time: 15m
+      expected_final_state: running
+    - path: tgen
+      environment:
+        OPENBLAS_NUM_THREADS: "1"
+      args: ../../../conf/tgen.torclient.graphml.xml
+      start_time: 25m
+      expected_final_state: {exited: 0}
+  # same as articlient, but uses arti-extra binary, which has experimental features enabled.
+  articlient-extra:
+    network_node_id: 0
+    host_options:
+    processes:
+    - path: *ArtiExtra
+      args:
+      - proxy
+      - -c=./arti.d/arti.common.toml
+      - -c=./arti.d/arti.extra.toml
+      - -o=proxy.socks_listen="127.0.0.1:9000"
+      - --disable-fs-permission-checks
+      # Disable console logging. (Already disabled in config file, but that
+      # currently has no effect due to #2025).
+      - -l=
+      environment:
+        RUST_BACKTRACE: "1"
+        HOME: ./home
+      start_time: 15m
+      expected_final_state: running
+    - path: tgen
+      environment:
+        OPENBLAS_NUM_THREADS: "1"
+      args: ../../../conf/tgen.torclient.graphml.xml
+      start_time: 25m
+      expected_final_state: {exited: 0}
+  articlient-bridge:
+    network_node_id: 0
+    host_options:
+      # Enable pcap capture so we can check for leaks
+      pcap_enabled: true
+      # Collect enough data for the IP fixed header
+      pcap_capture_size: "40 B"
+    processes:
+    - path: *Arti
+      args:
+      - proxy
+      - -c=./arti.d/arti.common.toml
+      - -c=./arti.d/arti.bridge.toml
+      - -o=proxy.socks_listen="127.0.0.1:9000"
+      - --disable-fs-permission-checks
+      # Disable console logging. (Already disabled in config file, but that
+      # currently has no effect due to #2025).
+      - -l=
+      environment:
+        RUST_BACKTRACE: "1"
+        HOME: ./home
+      start_time: 15m
+      expected_final_state: running
+    - path: tgen
+      environment:
+        OPENBLAS_NUM_THREADS: "1"
+      args: ../../../conf/tgen.torclient.graphml.xml
+      start_time: 25m
+      expected_final_state: {exited: 0}
+  articlient-bridge-obfs4:
+    network_node_id: 0
+    host_options:
+      # Enable pcap capture so we can check for leaks
+      pcap_enabled: true
+      # Collect enough data for the IP fixed header
+      pcap_capture_size: "40 B"
+    processes:
+    - path: *Arti
+      args:
+      - proxy
+      - -c=./arti.d/arti.common.toml
+      - -c=./arti.d/arti.bridge.toml
+      - -c=./arti.d/arti.obfs4-client.toml
+      - -o=proxy.socks_listen="127.0.0.1:9000"
+      - --disable-fs-permission-checks
+      # Disable console logging. (Already disabled in config file, but that
+      # currently has no effect due to #2025).
+      - -l=
+      environment:
+        RUST_BACKTRACE: "1"
+        HOME: ./home
+      start_time: 15m
+      expected_final_state: running
+    - path: tgen
+      environment:
+        OPENBLAS_NUM_THREADS: "1"
+      args: ../../../conf/tgen.torclient.graphml.xml
+      start_time: 25m
+      expected_final_state: {exited: 0}
+  articlient-onion:
+    network_node_id: 0
+    processes:
+    - path: *Arti
+      args:
+      - proxy
+      - -c=./arti.d/arti.common.toml
+      - -c=./arti.d/arti.onion.toml
+      - -o=proxy.socks_listen="127.0.0.1:9000"
+      - --disable-fs-permission-checks
+      # Disable console logging. (Already disabled in config file, but that
+      # currently has no effect due to #2025).
+      - -l=
+      environment:
+        RUST_BACKTRACE: "1"
+        HOME: ./home
+      start_time: 15m
+      expected_final_state: running
+    - path: tgen
+      # See https://shadow.github.io/docs/guide/compatibility_notes.html#libopenblas
+      environment: { OPENBLAS_NUM_THREADS: "1" }
+      args: ../../../conf/tgen.toronionclient.graphml.xml
+      start_time: 1500
+  # arti client connecting to the arti onion service
+  articlient-onion-artiserver:
+    network_node_id: 0
+    processes:
+    - path: *Arti
+      args:
+      - proxy
+      - -c=./arti.d/arti.common.toml
+      - -c=./arti.d/arti.onion.toml
+      - -o=proxy.socks_listen="127.0.0.1:9000"
+      - --disable-fs-permission-checks
+      # Disable console logging. (Already disabled in config file, but that
+      # currently has no effect due to #2025).
+      - -l=
+      environment:
+        RUST_BACKTRACE: "1"
+        HOME: ./home
+      start_time: 15m
+      expected_final_state: running
+    - path: tgen
+      # See https://shadow.github.io/docs/guide/compatibility_notes.html#libopenblas
+      environment: { OPENBLAS_NUM_THREADS: "1" }
+      args: ../../../conf/tgen.artionionclient.graphml.xml
+      start_time: 1500
+  # arti client connecting to the arti onion service that uses full vanguards
+  articlient-onion-artiserver-full-vanguards:
+    network_node_id: 0
+    processes:
+    - path: *Arti
+      args:
+      - proxy
+      - -c=./arti.d/arti.common.toml
+      - -c=./arti.d/arti.onion.toml
+      - -o=proxy.socks_listen="127.0.0.1:9000"
+      - --disable-fs-permission-checks
+      # Disable console logging. (Already disabled in config file, but that
+      # currently has no effect due to #2025).
+      - -l=
+      environment:
+        RUST_BACKTRACE: "1"
+        HOME: ./home
+      start_time: 15m
+      expected_final_state: running
+    - path: tgen
+      # See https://shadow.github.io/docs/guide/compatibility_notes.html#libopenblas
+      environment: { OPENBLAS_NUM_THREADS: "1" }
+      args: ../../../conf/tgen.artionionclientfullvanguards.graphml.xml
+      start_time: 1500
+  # arti client connecting to the arti onion service that runs
+  # in restricted discovery mode
+  #
+  # Like articlient-onion-artiserver-auth-2, this connects to
+  # fileserver-onion-arti-auth.
+  #
+  # This is the client nicknamed "default", configured in the service's
+  # authorized_clients directory.
+  articlient-onion-artiserver-auth:
+    network_node_id: 0
+    processes:
+    - path: *ArtiExtra
+      args:
+      - proxy
+      - -c=./arti.d/arti.common.toml
+      - -c=./arti.d/arti.extra.toml
+      - -c=./arti.d/arti.onion.toml
+      - -o=proxy.socks_listen="127.0.0.1:9000"
+      - --disable-fs-permission-checks
+      # Disable console logging. (Already disabled in config file, but that
+      # currently has no effect due to #2025).
+      - -l=
+      environment:
+        RUST_BACKTRACE: "1"
+        HOME: ./home
+      start_time: 15m
+      expected_final_state: running
+    - path: tgen
+      # See https://shadow.github.io/docs/guide/compatibility_notes.html#libopenblas
+      environment: { OPENBLAS_NUM_THREADS: "1" }
+      args: ../../../conf/tgen.artionionclient-auth.graphml.xml
+      start_time: 1500
+  # arti client connecting to the arti onion service that runs
+  # in restricted discovery mode
+  #
+  # Like articlient-onion-artiserver-auth, this connects to
+  # fileserver-onion-arti-auth.
+  #
+  # This is the client nicknamed "alice", configured in the service's static
+  # list of client keys.
+  articlient-onion-artiserver-auth-2:
+    network_node_id: 0
+    processes:
+    # Use the version of arti built with keymgr and experimental-api support:
+    - path: *ArtiExtra
+      args:
+      - proxy
+      - -c=./arti.d/arti.common.toml
+      - -c=./arti.d/arti.extra.toml
+      - -c=./arti.d/arti.onion.toml
+      - -o=proxy.socks_listen="127.0.0.1:9000"
+      - --disable-fs-permission-checks
+      # Disable console logging. (Already disabled in config file, but that
+      # currently has no effect due to #2025).
+      - -l=
+      environment:
+        RUST_BACKTRACE: "1"
+        HOME: ./home
+      start_time: 15m
+      expected_final_state: running
+    - path: tgen
+      # See https://shadow.github.io/docs/guide/compatibility_notes.html#libopenblas
+      environment: { OPENBLAS_NUM_THREADS: "1" }
+      args: ../../../conf/tgen.artionionclient-auth-2.graphml.xml
+      start_time: 1500
+  articlient-onion-auth:
+    network_node_id: 0
+    processes:
+    # Use the version of arti built with keymgr and experimental-api support:
+    - path: *ArtiExtra
+      args:
+      - proxy
+      - -c=./arti.d/arti.common.toml
+      - -c=./arti.d/arti.extra.toml
+      - -c=./arti.d/arti.onion.toml
+      - -o=proxy.socks_listen="127.0.0.1:9000"
+      - --disable-fs-permission-checks
+      # Disable console logging. (Already disabled in config file, but that
+      # currently has no effect due to #2025).
+      - -l=
+      environment:
+        RUST_BACKTRACE: "1"
+        HOME: ./home
+      start_time: 15m
+      expected_final_state: running
+    - path: tgen
+      # See https://shadow.github.io/docs/guide/compatibility_notes.html#libopenblas
+      environment: { OPENBLAS_NUM_THREADS: "1" }
+      args: ../../../conf/tgen.toronionclient-auth.graphml.xml
+      start_time: 1500
+  # A client that stores its restricted discovery keys in a C Tor keystore.
+  articlient-onion-artiserver-auth-ctor:
+    network_node_id: 0
+    processes:
+    # Use the version of arti built with keymgr and experimental-api support:
+    - path: *ArtiExtra
+      args:
+      - proxy
+      - -c=./arti.d/arti.common.toml
+      - -c=./arti.d/arti.extra.toml
+      - -c=./arti.d/arti-auth-ctor.onion.toml
+      - -o=proxy.socks_listen="127.0.0.1:9000"
+      - --disable-fs-permission-checks
+      # Disable console logging. (Already disabled in config file, but that
+      # currently has no effect due to #2025).
+      - -l=
+      environment:
+        RUST_BACKTRACE: "1"
+        HOME: ./home
+      start_time: 15m
+      expected_final_state: running
+    - path: tgen
+      # See https://shadow.github.io/docs/guide/compatibility_notes.html#libopenblas
+      environment: { OPENBLAS_NUM_THREADS: "1" }
+      args: ../../../conf/tgen.artionionclient-auth-ctor-store.graphml.xml
+      start_time: 1500
+  torclient-onion-artiserver:
+    network_node_id: 0
+    processes:
+    - path: tor
+      args: --Address tconionas --Nickname tconionas
+            --defaults-torrc torrc-defaults -f torrc
+      start_time: 15m
+      expected_final_state: running
+    - path: tgen
+      # See https://shadow.github.io/docs/guide/compatibility_notes.html#libopenblas
+      environment: { OPENBLAS_NUM_THREADS: "1" }
+      args: ../../../conf/tgen.artionionclient.graphml.xml
+      start_time: 25m
+  # tor client connecting to the arti onion service that uses full vanguards
+  torclient-onion-artiserver-full-vanguards:
+    network_node_id: 0
+    processes:
+    - path: tor
+      args: --Address tconionas --Nickname tconionas
+            --defaults-torrc torrc-defaults -f torrc
+      start_time: 15m
+      expected_final_state: running
+    - path: tgen
+      # See https://shadow.github.io/docs/guide/compatibility_notes.html#libopenblas
+      environment: { OPENBLAS_NUM_THREADS: "1" }
+      args: ../../../conf/tgen.artionionclientfullvanguards.graphml.xml
+      start_time: 25m
+

@@ -1,0 +1,42 @@
+#!/usr/bin/env -S perl -wp
+#
+# This terrible perl script helps convert the easy-to-edit
+#
+#   - Changelog item.
+#     !1234
+#     #6789
+#     TROVE-2024-001
+#
+# into our canonical CHANGELOG.md style
+#
+#   - Changelog item.
+#     ([!1234], [#6789], [TROVE-2024-001])
+#
+# You pipe the new bit of the changelog through it manually.
+# You'll probably need to edit it before and after.
+
+use strict;
+
+our @links;
+
+s{[ \t]*$}{};
+
+my $linky = qr{[!#]\d{3,}|TROVE-\d+-\d+};
+
+sub write_out_links () {
+  if (@links) {
+    print "  (";
+    print join ', ', @links;
+    print ")\n";
+    @links = ();
+  }
+}
+
+if (m{^  ($linky)$}) {
+  push @links, "[$1]";
+  $_ = '';
+} else {
+  write_out_links();
+}
+
+END { write_out_links(); }

@@ -1,0 +1,33 @@
+[tor_network]
+fallback_caches = [
+    { rsa_identity = "A52CA5B56C64D864F6AE43E56F29ACBD5706DDA1", ed_identity = "4ngwAxQ6Zw2VJB241CenzfrVtT6omCDOf9yGB1XAqTs", orports = [ "100.0.0.1:9111" ] },
+]
+authorities = { v3idents = [ "604ED7BE52100945A47EAD301D45FADF493C6371" ] }
+
+[path_rules]
+ipv4_subnet_family_prefix = 33
+ipv6_subnet_family_prefix = 129
+
+[application]
+# Disable process hardening, which interferes with shadow's process control
+# https://github.com/shadow/shadow/issues/2368
+permit_debugging = true
+allow_running_as_root = true
+
+[logging]
+log_sensitive_information = true
+files = [
+    { path = "./arti.log.txt", filter = "debug" }
+]
+# Disable logging directly to console, since we're logging to files.
+# NOTE: This currently appears to have no effect; we instead have to
+# override this at the command-line. See arti#2025.
+console = ""
+
+[override_net_params]
+# When TestingTorNetwork is enabled, tor uses a hard-coded value
+# of 120 here; match it.
+hsdir_interval = 120
+
+[storage]
+state_dir = "./"

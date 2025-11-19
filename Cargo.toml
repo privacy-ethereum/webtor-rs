@@ -17,32 +17,60 @@ repository = "https://github.com/voltrevo/webtor-rs"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
-web-sys = "0.3"
+web-sys = { version = "0.3.69", features = [
+    "console",
+    "WebSocket",
+    "MessageEvent",
+    "ErrorEvent",
+    "CloseEvent",
+    "BinaryType",
+    "ReadableStream",
+    "Window",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "HtmlInputElement",
+    "HtmlButtonElement",
+    "HtmlTextAreaElement",
+    "HtmlDivElement",
+    "Text",
+    "Node",
+    "NodeList",
+    "DocumentFragment",
+    "Event",
+    "EventTarget",
+    "MouseEvent",
+    "InputEvent",
+    "KeyboardEvent",
+    "Blob",
+    "FileReader",
+    "Response",
+    "Request",
+    "Headers",
+    "RequestInit"
+] }
 serde = { version = "1.0", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 thiserror = "1.0"
 anyhow = "1.0"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["sync", "macros", "io-util", "rt", "time"] }
 futures = "0.3"
-reqwest = { version = "0.12", features = ["json"] }
+http = "1.1"
 url = "2.5"
 tracing = "0.1"
 tracing-wasm = "0.2"
 getrandom = { version = "0.2", features = ["js"] }
 
 # Tor-related dependencies
-tor-rtcompat = "0.10"
-tor-circmgr = "0.10"
-tor-proto = "0.10"
-tor-netdoc = "0.10"
-tor-config = "0.10"
-tor-dirmgr = "0.10"
-tor-keymgr = "0.10"
-tor-linkspec = "0.10"
-tor-llcrypto = "0.10"
-tor-cell = "0.10"
-tor-error = "0.10"
-tor-async-utils = "0.10"
+tor-rtcompat = { version = "0.36.0", default-features = false }
+tor-proto = { version = "0.36.0", default-features = false }
+tor-netdoc = { version = "0.36.0", default-features = false }
+tor-linkspec = "0.36.0"
+tor-llcrypto = "0.36.0"
+tor-cell = "0.36.0"
+tor-error = "0.36.0"
+tor-async-utils = "0.36.0"
+tor-memquota = "0.36.0"
 
 # Cryptography
 rsa = "0.9"
@@ -56,3 +84,6 @@ base64 = "0.22"
 
 # Async runtime
 wasm-bindgen-test = "0.3"
+
+[patch.crates-io]
+tor-basic-utils = { path = "vendor/arti/crates/tor-basic-utils" }

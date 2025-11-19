@@ -1,0 +1,34 @@
+Validate the integrity of keystores.
+
+Detects and reports unrecognized entries and paths, as well as malformed or expired keys.
+
+Such entries will be removed if this command is invoked with `--sweep`.
+
+Usage: arti keys check-integrity [OPTIONS]
+
+Options:
+  -c, --config <FILE>
+          Specify which config file(s) to read. Defaults to [File("[..]"), Dir("[..]")]
+
+  -k, --keystore-id <KEYSTORE_ID>
+          Identifier of the keystore.
+          
+          If omitted, keys and certificates from all the keystores will be checked.
+
+  -o <KEY=VALUE>
+          Override config file parameters, using TOML-like syntax.
+
+  -s, --sweep
+          Remove the detected invalid keystore entries
+
+  -b, --batch
+          With this flag active no prompt will be shown and no confirmation will be asked
+
+  -l, --log-level <LEVEL>
+          Override the log level (usually one of 'trace', 'debug', 'info', 'warn', 'error').
+
+      --disable-fs-permission-checks
+          Don't check permissions on the files we use.
+
+  -h, --help
+          Print help (see a summary with '-h')

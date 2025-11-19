@@ -1,0 +1,268 @@
+#!/usr/bin/env python3
+
+import argparse
+import fnmatch
+import sys
+import os
+import re
+import shutil
+import subprocess
+
+# ---------- actual list of lints to apply (or disapply) ----------
+
+# NOTE: We should NEVER have a `deny` for a built-in rustc lint.
+# It's okay to deny clippy lints, but if we deny rustc lints,
+# a future version of the compiler might refuse to build our code
+# entirely.
+
+WANT_LINTS = """
+#![allow(renamed_and_removed_lints)] // @@REMOVE_WHEN(ci_arti_stable)
+#![allow(unknown_lints)] // @@REMOVE_WHEN(ci_arti_nightly)
+#![warn(missing_docs)]
+#![warn(noop_method_call)]
+#![warn(unreachable_pub)]
+#![warn(clippy::all)]
+#![deny(clippy::await_holding_lock)]
+#![deny(clippy::cargo_common_metadata)]
+#![deny(clippy::cast_lossless)]
+#![deny(clippy::checked_conversions)]
+#![warn(clippy::cognitive_complexity)]
+#![deny(clippy::debug_assert_with_mut_call)]
+#![deny(clippy::exhaustive_enums)]
+#![deny(clippy::exhaustive_structs)]
+#![deny(clippy::expl_impl_clone_on_copy)]
+#![deny(clippy::fallible_impl_from)]
+#![deny(clippy::implicit_clone)]
+#![deny(clippy::large_stack_arrays)]
+#![warn(clippy::manual_ok_or)]
+#![deny(clippy::missing_docs_in_private_items)]
+#![warn(clippy::needless_borrow)]
+#![warn(clippy::needless_pass_by_value)]
+#![warn(clippy::option_option)]
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
+#![warn(clippy::rc_buffer)]
+#![deny(clippy::ref_option_ref)]
+#![warn(clippy::semicolon_if_nothing_returned)]
+#![warn(clippy::trait_duplication_in_bounds)]
+#![deny(clippy::unchecked_time_subtraction)]
+#![deny(clippy::unnecessary_wraps)]
+#![warn(clippy::unseparated_literal_suffix)]
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::mod_module_files)]
+#![allow(clippy::let_unit_value)] // This can reasonably be done for explicitness
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::significant_drop_in_scrutinee)] // arti/-/merge_requests/588/#note_2812945
+#![allow(clippy::result_large_err)] // temporary workaround for arti#587
+#![allow(clippy::needless_raw_string_hashes)] // complained-about code is fine, often best
+#![allow(clippy::needless_lifetimes)] // See arti#1765
+#![allow(mismatched_lifetime_syntaxes)] // temporary workaround for arti#2060
+"""
+
+# ---------- list of lints to apply or disapply *in tests* ----------
+
+TEST_LINTS = """
+#![allow(clippy::bool_assert_comparison)]
+#![allow(clippy::clone_on_copy)]
+#![allow(clippy::dbg_macro)]
+#![allow(clippy::mixed_attributes_style)]
+#![allow(clippy::print_stderr)]
+#![allow(clippy::print_stdout)]
+#![allow(clippy::single_char_pattern)]
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::unchecked_time_subtraction)]
+#![allow(clippy::useless_vec)]
+#![allow(clippy::needless_pass_by_value)]
+"""
+
+# ---------- list of lints to apply or disapply *in examples* ----------
+
+EXAMPLE_LINTS = (
+    """
+#![allow(unknown_lints)] // @@REMOVE_WHEN(ci_arti_nightly)
+"""
+    + TEST_LINTS.strip()
+)
+
+
+# ---------- some notes about lints we might use - NOT USED by any code here ----------
+
+SOON = """
+"""
+
+WISH_WE_COULD = """
+#![warn(unused_crate_dependencies)]
+"""
+
+DECIDED_NOT = """
+#![deny(clippy::redundant_pub_crate)]
+#![deny(clippy::future_not_send)]
+#![deny(clippy::redundant_closure_for_method_calls)]
+#![deny(clippy::panic)]
+#![deny(clippy::if_then_some_else_none)]
+#![deny(clippy::expect_used)]
+#![deny(clippy::option_if_let_else)]
+#![deny(missing_debug_implementations)]
+#![deny(clippy::pub_enum_variant_names)]
+"""
+
+# ---------- code for autoprocessing Rust source files ----------
+
+PAT = re.compile(r"^ *#!\[(?:cfg_attr\(.*)?(allow|deny|warn)")
+
+LINT_LISTS = {
+    "lint": WANT_LINTS,
+    "test lint": TEST_LINTS,
+    "example lint": EXAMPLE_LINTS,
+}
+# The start delimiter is a regular comment.
+START_LINE = re.compile(r"^(\s*)// @@ begin (.*) list")
+
+# End delimiter is Rustdoc containing an HTML comment, because rustfmt
+# *really really* hates comments that come after things.
+# Finishing the automaintained block with just a blank line is too much of a hazard.
+# It does end up in the output HTML from Rustdoc, but it is harmless there.
+END_LINE = re.compile(r"^\s*//! <!-- @@ end (.*) list")
+
+opts = None
+deferred_errors = []
+
+
+class ImproperFile(Exception):
+    def __init__(self, lno, message):
+        self.lno = lno
+        self.message = message
+
+
+def strip_lints_containing(s):
+    """Remove every lint containing 's'."""
+
+    def rmv_lints(inp, s):
+        return "\n".join(line for line in inp.split("\n") if s not in line)
+
+    global LINT_LISTS
+    LINT_LISTS = dict((k, rmv_lints(v, s)) for (k, v) in LINT_LISTS.items())
+
+
+def filter_file(lints, inp, outp, insist):
+    in_lint_list = None
+    found_lint_list = False
+    lno = 0
+    for line in inp.readlines():
+        lno += 1
+
+        if start_match := START_LINE.match(line):
+            if in_lint_list:
+                raise ImproperFile(
+                    lno, 'found "@@ begin lint list" but inside lint list'
+                )
+            found_lint_list = True
+            indent = start_match.group(1)
+            in_lint_list = start_match.group(2)
+        elif end_match := END_LINE.match(line):
+            if not in_lint_list:
+                raise ImproperFile(
+                    lno, 'found "@@ end lint list" but not inside lint list'
+                )
+            if in_lint_list != end_match.group(1):
+                raise ImproperFile(
+                    lno,
+                    "found end tag "
+                    + end_match.group(1)
+                    + " but expected "
+                    + in_lint_list,
+                )
+
+            try:
+                lints = LINT_LISTS[in_lint_list]
+            except KeyError:
+                raise ImproperFile(lno, "No such lint list as " + in_lint_list)
+            for lint in lints.strip().split("\n"):
+                outp.write(indent + lint + "\n")
+            in_lint_list = None
+        elif in_lint_list:
+            if not PAT.match(line):
+                raise ImproperFile(lno, "entry in lint list does not look like a lint")
+            # do not send to output
+            continue
+        outp.write(line)
+    if in_lint_list:
+        raise ImproperFile(
+            lno, 'missing "@@ lint list" delimiter, still in lint list at EOF'
+        )
+    if insist and not found_lint_list:
+        raise ImproperFile(
+            lno, "standard lint list block seems to be missing (wrong delimiters?)"
+        )
+
+
+def process(lints, fn, always_insist):
+    insist = (
+        always_insist
+        or fnmatch.fnmatch(fn, "crates/*/src/lib.rs")
+        or fnmatch.fnmatch(fn, "crates/*/src/main.rs")
+    )
+
+    tmp_name = fn + ".tmp~"
+    outp = open(tmp_name, "w")
+    inp = open(fn, "r")
+    try:
+        filter_file(lints, inp, outp, insist)
+    except ImproperFile as e:
+        print("%s:%d: %s" % (fn, e.lno, e.message), file=sys.stderr)
+        deferred_errors.append(fn)
+        os.remove(tmp_name)  # this tmp file is probably partial
+        return
+
+    inp.close()
+    outp.close()
+
+    if opts.check:
+        if subprocess.run(["diff", "-u", "--", fn, tmp_name]).returncode != 0:
+            deferred_errors.append(fn)
+    else:
+        shutil.move(tmp_name, fn)
+
+
+def main(lints, files):
+    if not os.path.exists("./crates/tor-proto/src/lib.rs"):
+        print("Run this from the top level of an arti repo.")
+        sys.exit(1)
+
+    always_insist = True
+    if not files:
+        files = subprocess.run(
+            ["find", ".", "-name", "*.rs"], stdout=subprocess.PIPE, check=True
+        ).stdout
+        files = files.decode("utf-8").rstrip("\n").split("\n")
+        always_insist = False
+
+    if opts.ci_nightly:
+        strip_lints_containing("@@REMOVE_WHEN(ci_arti_nightly)")
+    if opts.ci_stable:
+        strip_lints_containing("@@REMOVE_WHEN(ci_arti_stable)")
+
+    for fn in files:
+        process(lints, fn, always_insist)
+
+    if len(deferred_errors) > 0:
+        print(
+            "\n"
+            + sys.argv[0]
+            + ": standard lint block mismatch in the following files:\n  "
+            + ", ".join(deferred_errors),
+            file=sys.stderr,
+        )
+        print("Run " + sys.argv[0] + " (possibly after editing it) to fix.")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser("standardise Rust lint blocks")
+    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--ci-nightly", action="store_true")
+    parser.add_argument("--ci-stable", action="store_true")
+    parser.add_argument("file", nargs="*")
+    opts = parser.parse_args()
+
+    main(WANT_LINTS, opts.file)

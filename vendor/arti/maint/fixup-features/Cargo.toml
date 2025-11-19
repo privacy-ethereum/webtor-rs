@@ -1,0 +1,19 @@
+[package]
+name = "fixup-features"
+version = "0.1.0"
+edition = "2024"
+publish = false
+authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
+rust-version = "1.86"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "Tool used by arti to enforce certain properties in our Cargo features"
+
+[dependencies]
+anyhow = "1.0.69"
+itertools = "0.14.0"
+pico-args = "0.5.0"
+toml_edit = "0.23.4"
+
+[features]
+full = []

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -xeuo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+./tests/chutney/setup
+
+# Try to ensure we tear down the network on exit, including failure, ctrl-c, etc.
+trap ./tests/chutney/teardown EXIT
+# bootstrap the network
+./tests/chutney/bootstrap
+
+# test the network
+./tests/chutney/test

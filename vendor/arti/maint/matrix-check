@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+
+import argparse
+import toml.decoder
+import sys
+import os.path
+import os
+import list_crates
+from subprocess import run
+
+TOPDIR = os.path.split(os.path.dirname(sys.argv[0]))[0]
+os.chdir(TOPDIR)
+
+# some tests don't compile on every combination 😐
+# also test is way slower than check
+KEYWORD = "check"
+
+supplementary_targets = dict()
+
+
+def combination(*args):
+    res = None
+    for featureset in args:
+        powerset = [[]]
+        for feature in featureset:
+            powerset.extend([combination + [feature] for combination in powerset])
+        # remove empty set
+        powerset.pop(0)
+        if res is None:
+            res = powerset
+        else:
+            new_res = []
+            for prev_feat in res:
+                for new_feat in powerset:
+                    new_res.append(prev_feat + new_feat)
+            res = new_res
+    return res
+
+
+supplementary_targets["tor-rtcompat"] = combination(
+    ["async-std", "tokio", "native-tls", "rustls"]
+)
+supplementary_targets["arti-client"] = combination(
+    ["async-std", "tokio", "native-tls", "rustls"]
+)
+supplementary_targets["arti"] = combination(
+    ["async-std", "tokio"], ["native-tls", "rustls"]
+)
+
+
+def take(dic, key):
+    if key in dic:
+        res = dic.get(key)
+        del dic[key]
+        return res
+    return None
+
+
+def test_crate_config(crate, features, allow_empty=False):
+    if features is None:
+        return
+    if len(features) == 0 and not allow_empty:
+        return
+    features = ",".join(features)
+    args = [
+        "cargo",
+        KEYWORD,
+        "-p",
+        crate,
+        "--no-default-features",
+        "--features",
+        features,
+    ]
+    print("running:", " ".join(args), file=sys.stderr)
+    p = run(args)
+    if p.returncode != 0:
+        raise Exception(
+            "Failed to test '" + crate + "' with features '" + features + "'"
+        )
+
+
+def test_crate(crate):
+    if crate.name in ["fs-mistrust", "tor-config"]:
+        # these tests do not pass as of now. Skipping them.
+        return
+
+    toml_path = os.path.join(crate.subdir, "Cargo.toml")
+    t = toml.decoder.load(toml_path)
+    features = t.get("features") or {}
+
+    # remove testing features, it makes little sens to test them
+    take(features, "testing")
+
+    default = sorted(take(features, "default") or [])
+    full = sorted(take(features, "full") or [])
+    all_features = sorted([feat for feat in features.keys()])
+
+    # no features; don't test if it would already be tested by normal tests
+    if len(features) != 0:
+        # arti does not work: it requires an executor
+        if crate.name not in ["arti"]:
+            test_crate_config(crate.name, [], True)
+    # default
+    test_crate_config(crate.name, default)
+    # full
+    test_crate_config(crate.name, full)
+    # all
+    test_crate_config(crate.name, all_features)
+
+    for combination in supplementary_targets.get(crate.name, []):
+        test_crate_config(crate.name, combination)
+    # TODO test random combination?
+
+
+# https://stackoverflow.com/questions/24483182/python-split-list-into-n-chunks
+def chunks(lst, n):
+    """
+    Yield n number of chunks from lst.
+
+    This is a striped chunk, meaning that rather than making contiguous chunks, each chunk is made
+    up of elements that are n spaces apart in the input list. This has the advantage of making
+    sure that the lists are as close to evenly sized as possible, even if the input list length is
+    not divisible by n.
+    """
+    for i in range(0, n):
+        yield lst[i::n]
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--parallel",
+        type=str,
+        default="1,0",
+        help="Split the checking into multiple chunks and run only a single one of the chunks. "
+        "Takes two comma-separated integers, the first is the number of chunks, "
+        "the second is which chunk to run (zero-indexed)."
+        "This assumes that the set of crates that exist is the same between all invocations.",
+    )
+    args = parser.parse_args()
+    parallel_chunks, parallel_n = map(int, args.parallel.split(","))
+    assert parallel_n < parallel_chunks
+
+    crates = sorted(list_crates.list_crates(), key=lambda crate: crate.name)
+    for crate in list(chunks(crates, parallel_chunks))[parallel_n]:
+        test_crate(crate)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,30 @@
+[package]
+name = "tor-events"
+version = "0.17.0"
+edition = "2024"
+rust-version = "1.86"
+authors = ["The Tor Project, Inc.", "eta <eta@torproject.org>"]
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "A typed event broadcasting framework for Arti."
+keywords = ["tor", "arti"]
+categories = ["asynchronous"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+
+# This crate is not (yet?) used anywhere in Arti.
+publish = false
+
+[dependencies]
+async-broadcast = "0.7.0"
+futures = "0.3.14"
+serde = { version = "1.0.103", features = ["derive"] }
+thiserror = "2"
+tracing = "0.1.36"
+
+[dev-dependencies]
+tokio = { version = "1.7", features = ["macros", "rt", "rt-multi-thread", "time"] }
+
+[features]
+full = []
+[package.metadata.docs.rs]
+all-features = true

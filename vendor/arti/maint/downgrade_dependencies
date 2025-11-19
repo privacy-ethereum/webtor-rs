@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+#
+# Downgrades every one of our dependencies in Cargo.lock to the
+# earliest version listed in our Cargo.toml files.  (And then
+# re-upgrades a few second-order dependencies that aren't actually
+# supported by our first-order dependencies in their oldest versions.)
+#
+# If running this script causes a build failure that can be fixed by adding a
+# exception, go ahead and add the exception. In the long term, we should switch
+# to --direct-minimal-versions, which should not require any exceptions, but it
+# will take some work to get that to work - see arti#2032.
+#
+# The purpose of this script is to make sure that we are actually
+# compatible with the versions listed in our Cargo.toml files.
+# Without testing this, we could wind up with code that built
+# successfully with the versions listed in Cargo.lock, while declaring
+# support for versions of our dependencies that won't actually work.
+
+set -euo pipefail
+
+: "${CARGO:=cargo}"
+
+$CARGO +nightly update -Z minimal-versions
+$CARGO update \
+      -p crc32fast \
+      -p zeroize_derive:1.3.2 \
+      -p filetime \
+      -p tap:1.0.0 \
+      -p paste
+
+# The downgraded 'async-fs@2.0.0' lib specifies a dependency of 'futures-lite' 1.2.0,
+# but uses `FutureExt::poll()` which wasn't available until 'futures-lite' 1.9.0.
+$CARGO update --precise 1.9.0 futures-lite@1.2.0
+
+# The downgraded `async-global-executor@2.4.0` pulls in `event-listener@3.0.0`
+# which mistakenly dropped a `RefUnwindSafe` impl which `async-global-executor` wanted.
+# We're getting this via `async-std`, which evidently doesn't have minimal-versions CI
+# and will now never have it.
+$CARGO update --precise 3.1.0 event-listener@3.0.0

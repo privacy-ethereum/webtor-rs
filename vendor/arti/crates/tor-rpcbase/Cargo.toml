@@ -1,0 +1,38 @@
+[package]
+name = "tor-rpcbase"
+version = "0.36.0"
+edition = "2024"
+rust-version = "1.86"
+authors = ["The Tor Project, Inc.", "eta <eta@torproject.org>"]
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "Low level functionality for Arti's RPC service"
+keywords = ["tor", "arti", "rpc"]
+categories = ["asynchronous"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+
+[dependencies]
+derive-deftly = { version = "~1.5.0", features = ["full", "beta"] }
+derive_more = { version = "2.0.1", features = ["full"] }
+downcast-rs = "2.0.1"
+erased-serde = "0.4.2"
+futures = "0.3.14"
+futures-await-test = "0.3.0"
+inventory = "0.3.5"
+paste = "1"
+serde = { version = "1.0.103", features = ["derive"] }
+thiserror = "2"
+tor-async-utils = { path = "../tor-async-utils", version = "0.36.0" }
+tor-error = { path = "../tor-error/", version = "0.36.0", features = ["rpc"] }
+typetag = "0.2.7"
+void = "1"
+
+[dev-dependencies]
+assert-impl = "0.1.3"
+futures-await-test = "0.3.0"
+regex = { version = "1", default-features = false, features = ["std"] }
+serde_json = "1.0.50"
+
+[features]
+full = ["tor-async-utils/full", "tor-error/full", "describe-methods"]
+describe-methods = []

@@ -1,0 +1,60 @@
+[package]
+name = "arti-rpc-client-core"
+version = "0.36.0"
+authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
+edition = "2024"
+rust-version = "1.86"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "Client library for Arti RPC"
+keywords = ["tor", "arti"]
+# We must put *something* here and this will do
+categories = ["network-programming", "cryptography"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+
+caret = { path = "../caret", version = "0.8.0" }
+cfg-if = "1.0.0"
+derive_more = { version = "2.0.1", features = ["full"] }
+educe = "0.4.22"
+fs-mistrust = { version = "0.13.0", path = "../fs-mistrust" }
+paste = { version = "1", optional = true }
+percent-encoding = "2.3.1"
+rand = "0.9.1"
+serde = { version = "1.0.103", features = ["derive"] }
+serde_json = "1.0.104"
+thiserror = "2"
+tor-config-path = { version = "0.36.0", path = "../tor-config-path", features = ["arti-client"] }
+tor-error = { version = "0.36.0", path = "../tor-error", default-features = false }
+tor-rpc-connect = { version = "0.36.0", path = "../tor-rpc-connect", features = ["rpc-client"] }
+tor-socksproto = { path = "../tor-socksproto", version = "0.36.0", default-features = false, features = [
+    "client-handshake",
+] }
+void = "1"
+
+[dev-dependencies]
+rand = "0.9.1"
+rand_chacha = "0.9"
+tor-basic-utils = { path = "../tor-basic-utils", version = "0.36.0" }
+
+[features]
+full = [
+    "ffi",
+    "caret/full",
+    "tor-socksproto/full",
+    "tor-error/full",
+    "fs-mistrust/full",
+    "tor-config-path/full",
+    "tor-rpc-connect/full",
+]
+ffi = ["paste"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[target.'cfg(not(windows))'.dev-dependencies]
+socketpair = "0.19"

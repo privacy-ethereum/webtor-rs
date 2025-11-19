@@ -1,0 +1,45 @@
+[package]
+name = "arti-bench"
+version = "0.17.0"
+edition = "2024"
+rust-version = "1.86"
+authors = ["The Tor Project, Inc.", "eta <eta@torproject.org>"]
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "A simple benchmarking utility for Arti."
+keywords = ["tor", "arti"]
+categories = ["asynchronous"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+
+# This crate is only useful for arti development;
+# earlier versions of it were published by accident.
+publish = false
+
+[dependencies]
+anyhow = "1.0.23"
+arti = { path = "../arti", version = "1.7.0" }
+arti-client = { package = "arti-client", path = "../arti-client", version = "0.36.0" }
+clap = { version = "4.3.24", features = ["wrap_help"] }
+float-ord = "0.3"
+fs-mistrust = { path = "../fs-mistrust", version = "0.13.0" }
+futures = "0.3.14"
+rand = "0.9.1"
+serde = { version = "1.0.103", features = ["derive"] }
+serde_json = "1.0.50"
+tokio = { version = "1.7", features = ["full"] }
+tokio-socks = "0.5"
+tor-config = { path = "../tor-config", version = "0.36.0" }
+tor-rtcompat = { path = "../tor-rtcompat", version = "0.36.0", features = ["tokio", "native-tls"] }
+tracing = "0.1.36"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+
+[features]
+full = [
+    "arti/full",
+    "arti-client/full",
+    "fs-mistrust/full",
+    "tor-config/full",
+    "tor-rtcompat/full",
+]
+[package.metadata.docs.rs]
+all-features = true

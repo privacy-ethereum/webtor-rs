@@ -1,0 +1,19 @@
+[package]
+name = "caret"
+version = "0.8.0"
+authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
+edition = "2024"
+rust-version = "1.86"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "Macros for declaring non-exhaustive C-style enumerations, with named members"
+keywords = ["macro", "enum"]
+categories = ["rust-patterns"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+
+[dependencies]
+
+[features]
+full = []
+[package.metadata.docs.rs]
+all-features = true

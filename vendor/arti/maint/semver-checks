@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+#
+# Run "cargo-semver-checks" on each of our crates, with the "full" features
+# set, comparing against a provided arti version.
+#
+# You will need cargo semver-checks >= 0.22.1.
+
+set -euo pipefail
+
+: "${CARGO:=cargo}"
+
+if [ -z "${1-}" ]; then
+	echo "Usage: $0 [git-tag]"
+	echo "Script will run cargo-semver-checks on changes since [git-tag]."
+	exit 1
+fi
+LAST_VERSION="$1"
+
+$CARGO semver-checks \
+      --only-explicit-features \
+      --workspace \
+      --features full \
+      --baseline-rev "$LAST_VERSION"

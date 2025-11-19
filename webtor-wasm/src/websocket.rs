@@ -7,6 +7,7 @@ use web_sys::{CloseEvent, ErrorEvent, Event, MessageEvent, WebSocket};
 use std::sync::{Arc, Mutex};
 use futures::channel::mpsc;
 use futures::StreamExt;
+use gloo_console::{log as console_log, error as console_error, warn as console_warn};
 
 /// WebSocket connection for WASM
 pub struct WasmWebSocketConnection {
@@ -17,7 +18,7 @@ pub struct WasmWebSocketConnection {
 
 impl WasmWebSocketConnection {
     pub async fn connect(url: &str) -> Result<Self, JsValue> {
-        console_log!("Connecting to WebSocket: {}", url);
+        console_log!(format!("Connecting to WebSocket: {}", url));
         
         let websocket = WebSocket::new(url)?;
         websocket.set_binary_type(web_sys::BinaryType::Arraybuffer);
@@ -35,29 +36,13 @@ impl WasmWebSocketConnection {
                 uint8_array.copy_to(&mut data);
                 
                 if let Err(e) = sender_clone.unbounded_send(data) {
-                    console_error!("Failed to send WebSocket message to channel: {:?}", e);
+                    console_error!(format!("Failed to send WebSocket message to channel: {:?}", e));
                 }
             }
         }) as Box<dyn FnMut(MessageEvent)>);
         
         websocket.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
         on_message.forget();
-        
-        // Set up error handler
-        let on_error = Closure::wrap(Box::new(move |event: ErrorEvent| {
-            console_error!("WebSocket error: {:?}", event);
-        }) as Box<dyn FnMut(ErrorEvent)>);
-        
-        websocket.set_onerror(Some(on_error.as_ref().unchecked_ref()));
-        on_error.forget();
-        
-        // Set up close handler
-        let on_close = Closure::wrap(Box::new(move |event: CloseEvent| {
-            console_log!("WebSocket closed: code={}, reason={}", event.code(), event.reason());
-        }) as Box<dyn FnMut(CloseEvent)>);
-        
-        websocket.set_onclose(Some(on_close.as_ref().unchecked_ref()));
-        on_close.forget();
         
         // Wait for connection to be ready
         let (ready_sender, ready_receiver) = futures::channel::oneshot::channel();
@@ -67,12 +52,36 @@ impl WasmWebSocketConnection {
         let on_open = Closure::wrap(Box::new(move |_event: Event| {
             console_log!("WebSocket connection opened");
             if let Some(sender) = ready_sender_clone.lock().unwrap().take() {
-                let _ = sender.send(());
+                let _ = sender.send(Ok(()));
             }
         }) as Box<dyn FnMut(Event)>);
         
         websocket.set_onopen(Some(on_open.as_ref().unchecked_ref()));
         on_open.forget();
+
+        // Set up error handler
+        let ready_sender_clone = ready_sender.clone();
+        let on_error = Closure::wrap(Box::new(move |event: ErrorEvent| {
+            console_error!("WebSocket error: {:?}", event);
+            if let Some(sender) = ready_sender_clone.lock().unwrap().take() {
+                let _ = sender.send(Err("WebSocket error".to_string()));
+            }
+        }) as Box<dyn FnMut(ErrorEvent)>);
+        
+        websocket.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+        on_error.forget();
+        
+        // Set up close handler
+        let ready_sender_clone = ready_sender.clone();
+        let on_close = Closure::wrap(Box::new(move |event: CloseEvent| {
+            console_log!(format!("WebSocket closed: code={}, reason={}", event.code(), event.reason()));
+            if let Some(sender) = ready_sender_clone.lock().unwrap().take() {
+                let _ = sender.send(Err(format!("WebSocket closed early: code={}, reason={}", event.code(), event.reason())));
+            }
+        }) as Box<dyn FnMut(CloseEvent)>);
+        
+        websocket.set_onclose(Some(on_close.as_ref().unchecked_ref()));
+        on_close.forget();
         
         // Wait for connection or timeout
         let timeout = wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(&mut |resolve, _reject| {
@@ -84,7 +93,11 @@ impl WasmWebSocketConnection {
         }));
         
         let ready_fut = async {
-            ready_receiver.await.map_err(|_| JsValue::from_str("WebSocket ready channel closed"))
+            match ready_receiver.await {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(e)) => Err(JsValue::from_str(&e)),
+                Err(_) => Err(JsValue::from_str("WebSocket ready channel closed")),
+            }
         };
         
         match futures::future::select(Box::pin(ready_fut), Box::pin(timeout)).await {
@@ -107,7 +120,7 @@ impl WasmWebSocketConnection {
     }
     
     pub async fn send(&mut self, data: &[u8]) -> Result<(), JsValue> {
-        console_log!("Sending {} bytes through WebSocket", data.len());
+        console_log!(format!("Sending {} bytes through WebSocket", data.len()));
         
         let array = Uint8Array::from(data);
         self.websocket.send_with_array_buffer(&array.buffer())?;
@@ -120,7 +133,7 @@ impl WasmWebSocketConnection {
         
         match receiver.next().await {
             Some(data) => {
-                console_log!("Received {} bytes from WebSocket", data.len());
+                console_log!(format!("Received {} bytes from WebSocket", data.len()));
                 Ok(data)
             }
             None => {
@@ -176,7 +189,7 @@ impl WasmWebSocketDuplex {
 
 /// Wait for WebSocket to be ready (convenience function)
 pub async fn wait_for_websocket(url: &str, timeout_ms: u32) -> Result<WasmWebSocketConnection, JsValue> {
-    console_log!("Waiting for WebSocket connection to: {}", url);
+    console_log!(format!("Waiting for WebSocket connection to: {}", url));
     
     // Set up timeout
     let timeout_promise = js_sys::Promise::new(&mut |resolve, _reject| {
@@ -198,11 +211,11 @@ pub async fn wait_for_websocket(url: &str, timeout_ms: u32) -> Result<WasmWebSoc
             Ok(connection)
         }
         futures::future::Either::Left((Err(e), _)) => {
-            console_error!("WebSocket connection failed: {:?}", e);
+            console_error!(format!("WebSocket connection failed: {:?}", e));
             Err(e)
         }
         futures::future::Either::Right((_, _)) => {
-            console_error!("WebSocket connection timeout after {}ms", timeout_ms);
+            console_error!(format!("WebSocket connection timeout after {}ms", timeout_ms));
             Err(JsValue::from_str(&format!("WebSocket connection timeout after {}ms", timeout_ms)))
         }
     }
@@ -232,7 +245,7 @@ mod tests {
                 connection.close();
             }
             Err(e) => {
-                console_warn!("WebSocket test skipped due to connection error: {:?}", e);
+                console_warn!(format!("WebSocket test skipped due to connection error: {:?}", e));
                 // This is expected in some test environments
             }
         }

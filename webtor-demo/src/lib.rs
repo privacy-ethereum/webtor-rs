@@ -74,7 +74,7 @@ impl DemoApp {
                 .with_circuit_update_advance(30000); // 30 seconds
             
             // Create TorClient
-            match TorClient::new(options).await {
+            match TorClient::create(options).await {
                 Ok(client) => {
                     console::log_1(&"TorClient created successfully".into());
                     
@@ -86,7 +86,7 @@ impl DemoApp {
                     
                     // Wait for circuit to be ready
                     let client_ref = app.tor_client.lock().unwrap().as_ref().unwrap().clone();
-                    match client_ref.wait_for_circuit().await {
+                    match client_ref.wait_for_circuit_rust().await {
                         Ok(()) => {
                             console::log_1(&"Circuit is ready".into());
                             
@@ -130,8 +130,8 @@ impl DemoApp {
             app.stop_status_updates()?;
             
             // Close TorClient
-            if let Some(client) = app.tor_client.lock().unwrap().take() {
-                client.close().await;
+            if let Some(mut client) = app.tor_client.lock().unwrap().take() {
+                client.close_rust().await;
             }
             
             // Update UI
@@ -161,13 +161,13 @@ impl DemoApp {
             }
             
             // Check if TorClient is available
-            let client = app.tor_client.lock().unwrap().clone();
-            if client.is_none() {
+            let client_opt = app.tor_client.lock().unwrap().clone();
+            let client = if client_opt.is_none() {
                 app.set_request_output(index, "🔧 Creating TorClient automatically...", "loading")?;
                 app.log_output("🔧 TorClient not open. Creating automatically...", "info")?;
                 
                 // Try to create TorClient automatically
-                match app.open_tor_client().await {
+                match wasm_bindgen_futures::JsFuture::from(app.open_tor_client()).await {
                     Ok(_) => {
                         // Try again with the new client
                         let new_client = app.tor_client.lock().unwrap().clone();
@@ -183,7 +183,7 @@ impl DemoApp {
                     }
                 }
             } else {
-                client.unwrap()
+                client_opt.unwrap()
             };
             
             // Update UI
@@ -195,7 +195,7 @@ impl DemoApp {
             app.log_output(&format!("🌐 Making request {} to {}", index, url), "info")?;
             
             let start = js_sys::Date::now();
-            match client.fetch(&url).await {
+            match client.fetch_rust(&url).await {
                 Ok(response) => {
                     let duration = js_sys::Date::now() - start;
                     console::log_1(&format!("Request completed in {}ms", duration).into());
@@ -272,7 +272,7 @@ impl DemoApp {
             
             // Make isolated request
             let start = js_sys::Date::now();
-            match TorClient::fetch_one_time(&snowflake_url, &url, None, None).await {
+            match TorClient::fetch_one_time_rust(&snowflake_url, &url, None, None).await {
                 Ok(response) => {
                     let duration = js_sys::Date::now() - start;
                     console::log_1(&format!("Isolated request completed in {}ms", duration).into());
@@ -322,7 +322,7 @@ impl DemoApp {
             
             app.log_output("🔄 Manually triggering circuit update with 10s deadline...", "info")?;
             
-            match client.update_circuit(10000).await {
+            match client.unwrap().update_circuit_rust(10000).await {
                 Ok(()) => {
                     app.log_output("🔄 Circuit update completed successfully", "success")?;
                 }
@@ -486,7 +486,7 @@ impl DemoApp {
             .ok_or("Output element not found")?
             .dyn_into::<HtmlTextAreaElement>()?;
         
-        let timestamp = js_sys::Date::new_0().to_locale_time_string();
+        let timestamp = js_sys::Date::new_0().to_locale_time_string("en-US");
         let prefix = match log_type {
             "error" => "❌",
             "success" => "✅",
@@ -498,7 +498,7 @@ impl DemoApp {
         output.set_value(&format!("{}{}", current_value, log_entry));
         
         // Auto-scroll to bottom
-        output.scroll_top(output.scroll_height());
+        output.set_scroll_top(output.scroll_height());
         
         // Also log to console
         console::log_1(&format!("{}: {}", prefix, message).into());
@@ -545,7 +545,7 @@ impl DemoApp {
             let app = self.clone();
             
             let _ = future_to_promise(async move {
-                match client.get_circuit_status_string().await {
+                match client.get_circuit_status_string_rust().await {
                     Ok(status_string) => {
                         let _ = app.update_status_display(&status_string);
                     }

@@ -1,0 +1,38 @@
+[package]
+name = "fs-mistrust"
+version = "0.13.0"
+authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "Ensure that files can only be read or written by trusted users"
+keywords = ["fs", "file", "permissions", "ownership", "privacy"]
+categories = ["filesystem"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+rust-version = "1.86"
+
+[features]
+default = ["walkdir", "anon_home"]
+full = ["walkdir", "anon_home"]
+
+anon_home = ["dirs"]
+
+[dependencies]
+derive_builder = { version = "0.11", package = "derive_builder_fork_arti" }
+dirs = { version = "6", optional = true }
+serde = { version = "1.0.103", features = ["derive"], optional = true }
+thiserror = "2"
+walkdir = { version = "2", optional = true }
+
+[dev-dependencies]
+serde_json = "1.0.50"
+tempfile = "3"
+toml = "0.9.5"
+[package.metadata.docs.rs]
+all-features = true
+
+[target.'cfg(all(unix, not(target_os="ios"), not(target_os="tvos"), not(target_os="android")))'.dependencies]
+pwd-grp = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

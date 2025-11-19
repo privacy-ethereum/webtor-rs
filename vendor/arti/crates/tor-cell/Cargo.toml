@@ -1,0 +1,75 @@
+[package]
+name = "tor-cell"
+version = "0.36.0"
+authors = ["The Tor Project, Inc.", "Nick Mathewson <nickm@torproject.org>"]
+edition = "2024"
+rust-version = "1.86"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.torproject.org/tpo/core/arti/-/wikis/home"
+description = "Encode and decode Tor cells and messages"
+keywords = ["tor", "arti", "protocol"]
+categories = ["parser-implementations", "network-programming"]
+repository = "https://gitlab.torproject.org/tpo/core/arti.git/"
+
+[features]
+default = []
+conflux = ["__is_experimental"]
+
+experimental = ["experimental-udp", "hs", "hs-pow-full", "conflux", "testing"]
+# Enable experimental UDP support.
+experimental-udp = ["__is_experimental"]
+
+# "hs" = (all) hidden service support, either client or server
+hs = ["tor-hscrypto", "__is_experimental"]
+
+# Enable testing only API
+testing = ["experimental-udp", "__is_experimental"]
+
+# Onion service proof of work schemes
+hs-pow-full = ["tor-hscrypto/hs-pow-full", "__is_experimental"]
+
+full = [
+    "caret/full",
+    "tor-basic-utils/full",
+    "tor-bytes/full",
+    "tor-cert/full",
+    "tor-error/full",
+    "tor-hscrypto?/full",
+    "tor-linkspec/full",
+    "tor-llcrypto/full",
+    "tor-memquota/full",
+    "tor-protover/full",
+    "tor-units/full",
+]
+__is_experimental = []
+
+[dependencies]
+amplify = { version = "4", default-features = false, features = ["derive"] }
+bitflags = "2"
+bytes = "1"
+caret = { path = "../caret", version = "0.8.0" }
+derive-deftly = "1.5.0"
+derive_more = { version = "2.0.1", features = ["full"] }
+educe = "0.4.22"
+itertools = "0.14.0"
+paste = "1"
+rand = "0.9.1"
+smallvec = "1.10"
+thiserror = "2"
+tor-basic-utils = { path = "../tor-basic-utils", version = "0.36.0" }
+tor-bytes = { path = "../tor-bytes", version = "0.36.0" }
+tor-cert = { path = "../tor-cert", version = "0.36.0" }
+tor-error = { path = "../tor-error", version = "0.36.0" }
+tor-hscrypto = { path = "../tor-hscrypto", version = "0.36.0", optional = true, features = ["memquota-memcost"] }
+tor-linkspec = { path = "../tor-linkspec", version = "0.36.0" }
+tor-llcrypto = { path = "../tor-llcrypto", version = "0.36.0", features = ["memquota-memcost"] }
+tor-memquota = { version = "0.36.0", path = "../tor-memquota", default-features = false }
+tor-protover = { path = "../tor-protover", version = "0.36.0", features = ["tor-bytes"] }
+tor-units = { path = "../tor-units", version = "0.36.0", features = ["memquota-memcost"] }
+void = "1"
+
+[dev-dependencies]
+hex = "0.4"
+hex-literal = "1.0"
+[package.metadata.docs.rs]
+all-features = true

@@ -57,8 +57,8 @@ pub enum TorError {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
     
-    #[error("Other error: {0}")]
-    Other(#[from] anyhow::Error),
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
 impl TorError {

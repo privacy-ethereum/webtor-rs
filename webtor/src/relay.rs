@@ -109,7 +109,7 @@ impl RelayManager {
         candidates.sort_by_key(|relay| std::cmp::Reverse(relay.consensus_weight));
         
         // Take top candidates
-        let selected = candidates
+        let selected: Vec<Relay> = candidates
             .into_iter()
             .take(criteria.max_selection)
             .cloned()

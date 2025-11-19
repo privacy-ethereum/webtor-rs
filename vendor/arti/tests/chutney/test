@@ -1,0 +1,60 @@
+#!/usr/bin/env bash 
+
+set -xeuo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+# Tell shellcheck that yes, we know that we're sourcing a file.
+# shellcheck disable=SC1091
+source tests/chutney/arti.run
+
+# Validate that these are set (from arti.run)
+[ -n "${arti_bench_bin:?}" ]
+[ -n "${chutney_bin:?}" ]
+[ -n "${jq_bin:?}" ]
+[ -n "${target:?}" ]
+
+# Hostname must be syncd in `tests/chutney/integration-e2e-shadow`.
+TEST_DOMAIN=example.com
+
+# Perform chutney's built-in "verify" test
+"${chutney_bin}" verify "$target"
+
+arti_client_port=$(\
+  ${jq_bin} -r \
+  'limit(1; .nodes[] | select(.is_client and .backend=="ARTI") | .socksport)'\
+  "$CHUTNEY_DATA_DIR"/nodes/network.json)
+arti_dns_port=$(\
+  ${jq_bin} -r \
+  'limit(1; .nodes[] | select(.is_client and .backend=="ARTI") | .dnsport)'\
+  "$CHUTNEY_DATA_DIR"/nodes/network.json)
+if [ -n "${RUNNING_IN_SHADOW:-}" ]; then
+    # Resolving DNS through tor in shadow is currently broken:
+    # <https://github.com/shadow/shadow/issues/323>.
+    #
+    # We can still do the "curl" test (using --socks5 instead of
+    # --socks5-hostname to resolve locally).
+    #
+    # TODO: Fix or work around this. e.g. run a local `unbound` resolver inside
+    # the simulation.
+    curl http://"$TEST_DOMAIN" -vs --socks5 127.0.0.1:"${arti_client_port}" -o /dev/null
+else
+    curl http://"$TEST_DOMAIN" -vs --socks5-hostname 127.0.0.1:"${arti_client_port}" -o /dev/null
+
+    DIRECT_LOOKUP=$(dig +short $TEST_DOMAIN A)
+    TOR_LOOKUP=$(dig @127.0.0.1 -p "${arti_dns_port}" +short $TEST_DOMAIN A)
+    # The direct lookup can and does return multiple entries.
+    # The tor lookup should correspond to one of them.
+    [[ "$DIRECT_LOOKUP" == *"$TOR_LOOKUP"* ]]
+fi
+
+## This test only work on a chutney network with IPv6 support such as ipv6-exit-min,
+## sadly such a network can't run in CI because there is no IPv6 in docker (nor in shadow).
+#[ "$(dig @127.0.0.1 -p 35353 +short example.com AAAA)" == "2606:2800:220:1:248:1893:25c8:1946" ]
+
+# Get the socks port of a tor client to use for benchmarking comparison.
+tor_client_port=$(\
+  ${jq_bin} -r \
+  'limit(1; .nodes[] | select(.is_client and .backend=="TOR") | .socksport)'\
+  "$CHUTNEY_DATA_DIR"/nodes/network.json)
+RUST_LOG=debug "$arti_bench_bin" -c "$CHUTNEY_DATA_DIR"/nodes/arti.toml --socks5 127.0.0.1:"$tor_client_port" -o benchmark_results.json
