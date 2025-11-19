@@ -40,6 +40,9 @@ pub struct TorClientOptions {
     #[serde(default = "default_circuit_update_advance")]
     pub circuit_update_advance: u64,
     
+    /// Optional bridge fingerprint (hex string) to verify the bridge identity
+    pub bridge_fingerprint: Option<String>,
+
     /// Optional logging callback function (for WASM bindings)
     #[serde(skip)]
     pub on_log: Option<LogCallback>,
@@ -71,6 +74,7 @@ impl Default for TorClientOptions {
             create_circuit_early: default_create_circuit_early(),
             circuit_update_interval: default_circuit_update_interval(),
             circuit_update_advance: default_circuit_update_advance(),
+            bridge_fingerprint: None,
             on_log: None,
         }
     }
@@ -126,6 +130,11 @@ impl TorClientOptions {
     
     pub fn with_circuit_update_advance(mut self, advance: u64) -> Self {
         self.circuit_update_advance = advance;
+        self
+    }
+
+    pub fn with_bridge_fingerprint(mut self, fingerprint: String) -> Self {
+        self.bridge_fingerprint = Some(fingerprint);
         self
     }
     
