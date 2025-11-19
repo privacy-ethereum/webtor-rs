@@ -26,6 +26,8 @@ pub struct TorClient {
     circuit_manager: Arc<RwLock<CircuitManager>>,
     http_client: Arc<TorHttpClient>,
     is_initialized: Arc<RwLock<bool>>,
+    // Store the channel to prevent it from being dropped
+    channel: Arc<RwLock<Option<Arc<tor_proto::channel::Channel>>>>,
     update_task: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
 }
 
@@ -47,6 +49,7 @@ impl TorClient {
             circuit_manager: Arc::new(RwLock::new(circuit_manager)),
             http_client: Arc::new(http_client),
             is_initialized: Arc::new(RwLock::new(false)),
+            channel: Arc::new(RwLock::new(None)),
             update_task: Arc::new(RwLock::new(None)),
         };
         
@@ -214,15 +217,33 @@ impl TorClient {
         let unverified = handshake.connect(|| SystemTime::now()).await
             .map_err(|e| TorError::Network(format!("Handshake connect failed: {}", e)))?;
             
-        // Construct a dummy peer target (we should get this from bridge config in reality)
-        // For now, using arbitrary identities to satisfy type checker.
-        // In a real connection, these must match the relay's keys.
-        let dummy_ed: Ed25519Identity = [0u8; 32].into();
-        let dummy_rsa: RsaIdentity = [0u8; 20].into();
-        let peer = OwnedChanTargetBuilder::default()
-            .ed_identity(dummy_ed)
-            .rsa_identity(dummy_rsa)
-            .build()
+        // Construct peer target
+        let mut builder = OwnedChanTargetBuilder::default();
+        
+        // Use provided bridge fingerprint if available
+        let mut identity_set = false;
+        
+        if let Some(ref fingerprint) = self.options.bridge_fingerprint {
+             if let Ok(bytes) = hex::decode(fingerprint) {
+                 if bytes.len() == 20 {
+                     if let Some(rsa_id) = RsaIdentity::from_bytes(&bytes) {
+                         builder.rsa_identity(rsa_id);
+                         identity_set = true;
+                     }
+                 }
+             }
+        }
+        
+        // If no valid identity was set, use dummy identities
+        // This will likely fail the handshake verification if the bridge is real,
+        // but allows the build to proceed for testing or if the user didn't provide a fingerprint.
+        if !identity_set {
+            let dummy_ed: Ed25519Identity = [0u8; 32].into();
+            let dummy_rsa: RsaIdentity = [0u8; 20].into();
+            builder.ed_identity(dummy_ed).rsa_identity(dummy_rsa);
+        }
+            
+        let peer = builder.build()
             .map_err(|e| TorError::Internal(format!("Failed to build peer target: {}", e)))?;
 
         let channel = unverified.check(&peer, &[], None) // Empty cert for now
@@ -233,6 +254,9 @@ impl TorClient {
             
         // channel is (Arc<Channel>, Reactor)
         let (chan, reactor) = channel;
+        
+        // Store the channel to keep it alive
+        *self.channel.write().await = Some(chan);
         
         // Spawn reactor
         // We need to spawn the reactor on our runtime (or just spawn_local since we are on WASM)
@@ -292,6 +316,7 @@ impl Clone for TorClient {
             circuit_manager: self.circuit_manager.clone(),
             http_client: self.http_client.clone(),
             is_initialized: self.is_initialized.clone(),
+            channel: self.channel.clone(),
             update_task: self.update_task.clone(),
         }
     }

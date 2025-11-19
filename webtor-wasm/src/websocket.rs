@@ -44,22 +44,6 @@ impl WasmWebSocketConnection {
         websocket.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
         on_message.forget();
         
-        // Set up error handler
-        let on_error = Closure::wrap(Box::new(move |event: ErrorEvent| {
-            console_error!("WebSocket error: {:?}", event);
-        }) as Box<dyn FnMut(ErrorEvent)>);
-        
-        websocket.set_onerror(Some(on_error.as_ref().unchecked_ref()));
-        on_error.forget();
-        
-        // Set up close handler
-        let on_close = Closure::wrap(Box::new(move |event: CloseEvent| {
-            console_log!(format!("WebSocket closed: code={}, reason={}", event.code(), event.reason()));
-        }) as Box<dyn FnMut(CloseEvent)>);
-        
-        websocket.set_onclose(Some(on_close.as_ref().unchecked_ref()));
-        on_close.forget();
-        
         // Wait for connection to be ready
         let (ready_sender, ready_receiver) = futures::channel::oneshot::channel();
         let ready_sender = Arc::new(Mutex::new(Some(ready_sender)));
@@ -68,12 +52,36 @@ impl WasmWebSocketConnection {
         let on_open = Closure::wrap(Box::new(move |_event: Event| {
             console_log!("WebSocket connection opened");
             if let Some(sender) = ready_sender_clone.lock().unwrap().take() {
-                let _ = sender.send(());
+                let _ = sender.send(Ok(()));
             }
         }) as Box<dyn FnMut(Event)>);
         
         websocket.set_onopen(Some(on_open.as_ref().unchecked_ref()));
         on_open.forget();
+
+        // Set up error handler
+        let ready_sender_clone = ready_sender.clone();
+        let on_error = Closure::wrap(Box::new(move |event: ErrorEvent| {
+            console_error!("WebSocket error: {:?}", event);
+            if let Some(sender) = ready_sender_clone.lock().unwrap().take() {
+                let _ = sender.send(Err("WebSocket error".to_string()));
+            }
+        }) as Box<dyn FnMut(ErrorEvent)>);
+        
+        websocket.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+        on_error.forget();
+        
+        // Set up close handler
+        let ready_sender_clone = ready_sender.clone();
+        let on_close = Closure::wrap(Box::new(move |event: CloseEvent| {
+            console_log!(format!("WebSocket closed: code={}, reason={}", event.code(), event.reason()));
+            if let Some(sender) = ready_sender_clone.lock().unwrap().take() {
+                let _ = sender.send(Err(format!("WebSocket closed early: code={}, reason={}", event.code(), event.reason())));
+            }
+        }) as Box<dyn FnMut(CloseEvent)>);
+        
+        websocket.set_onclose(Some(on_close.as_ref().unchecked_ref()));
+        on_close.forget();
         
         // Wait for connection or timeout
         let timeout = wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(&mut |resolve, _reject| {
@@ -85,7 +93,11 @@ impl WasmWebSocketConnection {
         }));
         
         let ready_fut = async {
-            ready_receiver.await.map_err(|_| JsValue::from_str("WebSocket ready channel closed"))
+            match ready_receiver.await {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(e)) => Err(JsValue::from_str(&e)),
+                Err(_) => Err(JsValue::from_str("WebSocket ready channel closed")),
+            }
         };
         
         match futures::future::select(Box::pin(ready_fut), Box::pin(timeout)).await {

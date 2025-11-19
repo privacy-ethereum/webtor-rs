@@ -83,8 +83,11 @@ impl WasmSleep {
         
         #[cfg(not(target_arch = "wasm32"))]
         {
-            // Native dummy implementation for testing compilation
-             let _ = tx;
+            let duration = duration.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(duration);
+                let _ = tx.send(());
+            });
         }
 
         Self { rx }
