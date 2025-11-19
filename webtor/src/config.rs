@@ -2,6 +2,17 @@
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use std::sync::Arc;
+use std::fmt;
+
+#[derive(Clone)]
+pub struct LogCallback(pub Arc<dyn Fn(&str, LogType) + Send + Sync>);
+
+impl fmt::Debug for LogCallback {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "LogCallback")
+    }
+}
 
 /// Configuration options for the TorClient
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,7 +42,7 @@ pub struct TorClientOptions {
     
     /// Optional logging callback function (for WASM bindings)
     #[serde(skip)]
-    pub on_log: Option<Box<dyn Fn(&str, LogType) + Send + Sync>>,
+    pub on_log: Option<LogCallback>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -122,7 +133,7 @@ impl TorClientOptions {
     where
         F: Fn(&str, LogType) + Send + Sync + 'static,
     {
-        self.on_log = Some(Box::new(on_log));
+        self.on_log = Some(LogCallback(Arc::new(on_log)));
         self
     }
     

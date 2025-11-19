@@ -1,11 +1,11 @@
 //! HTTP client for making requests through Tor circuits
 
-use crate::circuit::{Circuit, CircuitManager};
+use crate::circuit::CircuitManager;
 use crate::error::{Result, TorError};
-use reqwest::{Method, Response as ReqwestResponse};
+use http::Method;
 use std::collections::HashMap;
 use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 use url::Url;
 
 /// HTTP request configuration
@@ -94,12 +94,6 @@ impl TorHttpClient {
         }
         
         // For now, we'll return a placeholder response
-        // The actual implementation would:
-        // 1. Open a connection through the Tor circuit
-        // 2. Set up TLS if HTTPS
-        // 3. Send the HTTP request
-        // 4. Receive and parse the response
-        
         Ok(HttpResponse {
             status: 200,
             headers: HashMap::new(),
@@ -151,27 +145,10 @@ impl HttpResponse {
     }
 }
 
-/// Convert reqwest Response to our HttpResponse (for testing)
-impl From<ReqwestResponse> for HttpResponse {
-    fn from(response: ReqwestResponse) -> Self {
-        let status = response.status().as_u16();
-        let url = response.url().clone();
-        
-        // This is a simplified conversion - in practice we'd need to handle the body properly
-        Self {
-            status,
-            headers: HashMap::new(),
-            body: b"Converted from reqwest".to_vec(),
-            url,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::relay::{Relay, RelayManager, flags};
-    use std::collections::HashSet;
     
     fn create_test_relay(fingerprint: &str, flags: Vec<&str>) -> Relay {
         Relay {

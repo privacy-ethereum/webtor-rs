@@ -1,21 +1,25 @@
 //! Snowflake bridge implementation for Tor connections
 
-use crate::error::{Result, TorError};
-use crate::websocket::{WebSocketConnection, WebSocketDuplex};
+use crate::error::Result;
+use crate::websocket::WebSocketStream;
+use futures::{AsyncRead, AsyncWrite};
+use std::io;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Snowflake bridge connection manager
 pub struct SnowflakeBridge {
     websocket_url: String,
-    connection_timeout: Duration,
+    _connection_timeout: Duration,
 }
 
 impl SnowflakeBridge {
     pub fn new(websocket_url: String, connection_timeout: Duration) -> Self {
         Self {
             websocket_url,
-            connection_timeout,
+            _connection_timeout: connection_timeout,
         }
     }
     
@@ -23,49 +27,66 @@ impl SnowflakeBridge {
     pub async fn connect(&self) -> Result<SnowflakeStream> {
         info!("Connecting to Snowflake bridge at {}", self.websocket_url);
         
-        let duplex = WebSocketDuplex::new(
-            self.websocket_url.clone(),
-            self.connection_timeout,
-        );
-        
-        let connection = duplex.connect().await?;
+        // TODO: Use connection_timeout when establishing connection
+        let stream = WebSocketStream::connect(&self.websocket_url).await?;
         
         Ok(SnowflakeStream {
-            connection,
-            _private: (),
+            inner: stream,
         })
     }
 }
 
+use tor_rtcompat::StreamOps;
+
 /// Snowflake stream for Tor communication
 pub struct SnowflakeStream {
-    connection: WebSocketConnection,
-    _private: (),
+    inner: WebSocketStream,
+}
+
+// Safety: We are in a WASM environment which is effectively single-threaded.
+// The types inside WebSocketStream (Rc, RefCell, etc.) are !Send.
+// However, since we are not actually sharing this across threads (because WASM doesn't support them fully yet
+// in this context, and we use spawn_local), we assert Send to satisfy tor-proto's bounds.
+unsafe impl Send for SnowflakeStream {}
+
+impl StreamOps for SnowflakeStream {
+    // Use default implementation
 }
 
 impl SnowflakeStream {
-    /// Send data through the Snowflake stream
-    pub async fn send(&mut self, data: &[u8]) -> Result<()> {
-        debug!("Sending {} bytes through Snowflake stream", data.len());
-        self.connection.send(data).await
-    }
-    
-    /// Receive data from the Snowflake stream
-    pub async fn receive(&mut self) -> Result<Vec<u8>> {
-        let data = self.connection.receive().await?;
-        debug!("Received {} bytes from Snowflake stream", data.len());
-        Ok(data)
-    }
-    
     /// Close the Snowflake stream
-    pub fn close(&mut self) {
+    pub async fn close(&mut self) -> io::Result<()> {
         info!("Closing Snowflake stream");
-        self.connection.close();
+        use futures::AsyncWriteExt;
+        self.inner.close().await
     }
-    
-    /// Check if the stream is still open
-    pub fn is_open(&self) -> bool {
-        self.connection.is_open()
+}
+
+impl AsyncRead for SnowflakeStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for SnowflakeStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_close(cx)
     }
 }
 
@@ -84,6 +105,7 @@ pub async fn create_snowflake_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::TorError;
     
     #[tokio::test]
     async fn test_snowflake_bridge_creation() {
@@ -94,6 +116,14 @@ mod tests {
         
         // This will fail in native Rust, but should work in WASM
         let result = bridge.connect().await;
+        
+        // On native, it returns Err because WebSocketStream isn't implemented
         assert!(result.is_err());
+         match result {
+            Err(TorError::Internal(msg)) => {
+                assert!(msg.contains("not supported") || msg.contains("Not implemented"));
+            }
+            _ => {} // Other errors possible
+        }
     }
 }

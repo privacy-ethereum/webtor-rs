@@ -67,6 +67,7 @@ impl Circuit {
 }
 
 /// Circuit manager for handling multiple circuits
+#[derive(Clone)]
 pub struct CircuitManager {
     circuits: Arc<RwLock<Vec<Arc<RwLock<Circuit>>>>>,
     relay_manager: Arc<RwLock<RelayManager>>,
@@ -173,24 +174,29 @@ impl CircuitManager {
         let max_age = Duration::from_secs(60 * 60); // 1 hour
         let max_idle = Duration::from_secs(60 * 10); // 10 minutes
         
+        let mut count = circuits.len();
+        
         circuits.retain(|circuit| {
             let circuit_read = circuit.blocking_read();
             
             // Remove failed circuits
             if circuit_read.is_failed() {
                 info!("Removing failed circuit: {}", circuit_read.id);
+                count -= 1;
                 return false;
             }
             
             // Remove very old circuits
             if circuit_read.age() > max_age {
                 info!("Removing old circuit: {} (age: {:?})", circuit_read.id, circuit_read.age());
+                count -= 1;
                 return false;
             }
             
             // Remove idle circuits (but keep at least one)
-            if circuit_read.time_since_last_use() > max_idle && circuits.len() > 1 {
+            if circuit_read.time_since_last_use() > max_idle && count > 1 {
                 info!("Removing idle circuit: {} (idle: {:?})", circuit_read.id, circuit_read.time_since_last_use());
+                count -= 1;
                 return false;
             }
             

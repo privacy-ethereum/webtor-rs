@@ -7,6 +7,7 @@ use web_sys::{CloseEvent, ErrorEvent, Event, MessageEvent, WebSocket};
 use std::sync::{Arc, Mutex};
 use futures::channel::mpsc;
 use futures::StreamExt;
+use gloo_console::{log as console_log, error as console_error, warn as console_warn};
 
 /// WebSocket connection for WASM
 pub struct WasmWebSocketConnection {
@@ -35,7 +36,7 @@ impl WasmWebSocketConnection {
                 uint8_array.copy_to(&mut data);
                 
                 if let Err(e) = sender_clone.unbounded_send(data) {
-                    console_error!("Failed to send WebSocket message to channel: {:?}", e);
+                    console_error!(format!("Failed to send WebSocket message to channel: {:?}", e));
                 }
             }
         }) as Box<dyn FnMut(MessageEvent)>);
@@ -198,7 +199,7 @@ pub async fn wait_for_websocket(url: &str, timeout_ms: u32) -> Result<WasmWebSoc
             Ok(connection)
         }
         futures::future::Either::Left((Err(e), _)) => {
-            console_error!("WebSocket connection failed: {:?}", e);
+            console_error!(format!("WebSocket connection failed: {:?}", e));
             Err(e)
         }
         futures::future::Either::Right((_, _)) => {

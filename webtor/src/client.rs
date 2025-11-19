@@ -6,7 +6,14 @@ use crate::error::{Result, TorError};
 use crate::http::{HttpRequest, HttpResponse, TorHttpClient};
 use crate::relay::RelayManager;
 use crate::snowflake::create_snowflake_stream;
-use reqwest::Method;
+use crate::wasm_runtime::WasmRuntime;
+use tor_proto::channel::ChannelBuilder;
+use http::Method;
+use tor_memquota::MemoryQuotaTracker;
+use tor_proto::memquota::{ChannelAccount, SpecificAccount};
+use tor_linkspec::{OwnedChanTargetBuilder, ChanTarget};
+use tor_llcrypto::pk::{ed25519::Ed25519Identity, rsa::RsaIdentity};
+use std::time::{Instant, SystemTime};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -178,17 +185,67 @@ impl TorClient {
         *self.is_initialized.write().await = false;
         info!("Tor client closed");
     }
-    
+
     /// Create initial circuit (called during construction)
     async fn create_initial_circuit(&self) -> Result<()> {
         self.log("Creating initial circuit", LogType::Info);
         
-        // For now, this is a placeholder
-        // In the full implementation, this would:
-        // 1. Connect to Snowflake bridge
-        // 2. Create Tor connection
-        // 3. Build initial circuit through relays
+        let snowflake_url = &self.options.snowflake_url;
+        let timeout = Duration::from_millis(self.options.connection_timeout);
         
+        // 1. Connect to Snowflake bridge
+        let stream = create_snowflake_stream(snowflake_url, timeout).await?;
+        self.log("Connected to Snowflake bridge", LogType::Success);
+        
+        // 2. Create Tor channel
+        // We need a runtime and memquota account
+        let runtime = WasmRuntime::new();
+        
+        // Create a no-op memory quota for now
+        let mq = MemoryQuotaTracker::new_noop();
+        
+        // Create ChannelAccount directly from tracker
+        let chan_account = ChannelAccount::new(&mq)
+             .map_err(|e| TorError::Internal(format!("Failed to create channel account: {}", e)))?;
+
+        let builder = ChannelBuilder::new();
+        let handshake = builder.launch_client(stream, runtime, chan_account);
+        
+        let unverified = handshake.connect(|| SystemTime::now()).await
+            .map_err(|e| TorError::Network(format!("Handshake connect failed: {}", e)))?;
+            
+        // Construct a dummy peer target (we should get this from bridge config in reality)
+        // For now, using arbitrary identities to satisfy type checker.
+        // In a real connection, these must match the relay's keys.
+        let dummy_ed: Ed25519Identity = [0u8; 32].into();
+        let dummy_rsa: RsaIdentity = [0u8; 20].into();
+        let peer = OwnedChanTargetBuilder::default()
+            .ed_identity(dummy_ed)
+            .rsa_identity(dummy_rsa)
+            .build()
+            .map_err(|e| TorError::Internal(format!("Failed to build peer target: {}", e)))?;
+
+        let channel = unverified.check(&peer, &[], None) // Empty cert for now
+            .map_err(|e| TorError::Network(format!("Handshake check failed: {}", e)))?
+            .finish()
+            .await
+            .map_err(|e| TorError::Network(format!("Handshake finish failed: {}", e)))?;
+            
+        // channel is (Arc<Channel>, Reactor)
+        let (chan, reactor) = channel;
+        
+        // Spawn reactor
+        // We need to spawn the reactor on our runtime (or just spawn_local since we are on WASM)
+        #[cfg(target_arch = "wasm32")]
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = reactor.run().await;
+        });
+        
+        #[cfg(not(target_arch = "wasm32"))]
+        tokio::spawn(async move {
+            let _ = reactor.run().await;
+        });
+
         *self.is_initialized.write().await = true;
         self.log("Initial circuit created", LogType::Success);
         
@@ -206,7 +263,7 @@ impl TorClient {
     /// Log a message (uses callback if provided)
     fn log(&self, message: &str, log_type: LogType) {
         if let Some(ref on_log) = self.options.on_log {
-            on_log(message, log_type);
+            (on_log.0)(message, log_type);
         } else {
             // Default logging
             match log_type {

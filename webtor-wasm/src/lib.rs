@@ -4,6 +4,7 @@ mod websocket;
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Duration;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::future_to_promise;
 use webtor::{TorClient as NativeTorClient, TorClientOptions as NativeTorClientOptions};
@@ -350,7 +351,7 @@ impl JsHttpResponse {
     #[wasm_bindgen(js_name = json)]
     pub fn json(&self) -> Result<JsValue, JsValue> {
         let text = self.text()?;
-        serde_json::from_str(&text)
+        serde_json::from_str::<serde_json::Value>(&text)
             .map_err(|e| JsValue::from_str(&format!("Invalid JSON: {}", e)))
             .map(|v| serde_wasm_bindgen::to_value(&v).unwrap())
     }

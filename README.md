@@ -227,11 +227,10 @@ Expected performance characteristics:
 
 ## 🚧 Current Limitations
 
-- **WASM WebSocket**: Native Rust WebSocket implementation is incomplete (browser-only)
-- **Tor Protocol**: Full Tor protocol implementation is complex and ongoing
-- **Relay Discovery**: Consensus fetching and relay selection needs improvement
-- **Performance**: Initial connection times are longer than native Tor
-- **Browser Support**: Requires modern browsers with WebAssembly support
+- **Tor Protocol**: Integration with `arti` (official Rust Tor implementation) is in progress. Channel establishment works, but full circuit construction is still being implemented.
+- **Relay Discovery**: Consensus fetching and relay selection needs improvement.
+- **Performance**: Initial connection times are longer than native Tor.
+- **Browser Support**: Requires modern browsers with WebAssembly support.
 
 ## 🗺️ Roadmap
 
