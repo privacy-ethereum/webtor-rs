@@ -45,7 +45,7 @@ mod wasm {
             let tx_close = tx;
 
             // Shared state for connection status (Open/Error/Close during handshake)
-            let (open_tx, open_rx) = futures::channel::oneshot::channel::<Result<(), String>>();
+            let (open_tx, open_rx) = futures::channel::oneshot::channel::<std::result::Result<(), String>>();
             let open_tx = Rc::new(RefCell::new(Some(open_tx)));
 
             // onmessage
