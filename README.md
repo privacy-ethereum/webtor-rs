@@ -115,6 +115,7 @@ console.log('Anonymous IP:', data.origin);
 
 ```javascript
 const options = new TorClientOptions('wss://snowflake.torproject.net/')
+    .withBridgeFingerprint('2B280B23E1107BB62ABFC40DDCC8824814F80A72') // Example fingerprint
     .withConnectionTimeout(15000)      // 15 second connection timeout
     .withCircuitTimeout(90000)         // 90 second circuit creation timeout
     .withCreateCircuitEarly(true)      // Create circuit immediately
@@ -154,6 +155,7 @@ Configuration options for the Tor client:
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
 | `snowflakeUrl` | string | required | Snowflake bridge WebSocket URL |
+| `bridgeFingerprint` | string | required | Hex fingerprint of the Snowflake bridge |
 | `connectionTimeout` | number | 15000 | WebSocket connection timeout (ms) |
 | `circuitTimeout` | number | 90000 | Circuit creation timeout (ms) |
 | `createCircuitEarly` | boolean | true | Create circuit immediately |
@@ -227,7 +229,7 @@ Expected performance characteristics:
 
 ## 🚧 Current Limitations
 
-- **Tor Protocol**: Integration with `arti` (official Rust Tor implementation) is in progress. Channel establishment works, but full circuit construction is still being implemented.
+- **Tor Protocol**: Integration with `arti` (official Rust Tor implementation) is well underway. Channel establishment and handshake with Snowflake bridges are implemented. Full circuit construction and stream handling are the next steps.
 - **Relay Discovery**: Consensus fetching and relay selection needs improvement.
 - **Performance**: Initial connection times are longer than native Tor.
 - **Browser Support**: Requires modern browsers with WebAssembly support.
@@ -239,7 +241,8 @@ Expected performance characteristics:
 - [x] WebSocket communication framework
 - [x] Circuit management architecture
 - [x] Demo webpage with basic functionality
-- [ ] Complete Tor protocol implementation
+- [x] Arti Integration (Channel Establishment & Handshake)
+- [ ] Complete Tor circuit creation (CREATE_FAST/CREATE2)
 - [ ] Relay consensus fetching
 - [ ] HTTP client through Tor circuits
 
