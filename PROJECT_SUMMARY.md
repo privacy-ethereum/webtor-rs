@@ -168,10 +168,10 @@ Flexible configuration in `webtor/src/config.rs`:
 
 ## 🚧 Current Limitations
 
-1. **Native WebSocket**: The native Rust WebSocket implementation is incomplete and requires browser environment
-2. **Tor Protocol**: Full Tor protocol implementation is complex and needs more work
-3. **Relay Discovery**: Consensus fetching and relay selection needs real network integration
-4. **Performance**: Initial connection times are still long (inherent to Tor)
+1. **Native WebSocket**: The native Rust WebSocket implementation is incomplete (though WASM is fully supported).
+2. **Tor Protocol**: Integration with `arti` is well underway. Channel establishment works, but full circuit construction is still in progress.
+3. **Relay Discovery**: Consensus fetching and relay selection needs real network integration.
+4. **Performance**: Initial connection times are still long (inherent to Tor).
 
 ## 🗺️ Future Improvements
 
@@ -180,6 +180,7 @@ Flexible configuration in `webtor/src/config.rs`:
 - [x] Integrate Arti (Tor) channel establishment
 - [x] Fix WASM bindings and linking (RLIB + Rust-friendly API)
 - [x] Fix CI build issues (vendored dependencies)
+- [x] Require bridge fingerprint for proper verification
 - [ ] Implement full Tor circuit creation (CREATE_FAST/CREATE2)
 - [ ] Add consensus fetching from directory authorities
 - [ ] Integrate with real Tor network
