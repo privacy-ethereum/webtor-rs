@@ -101,13 +101,14 @@ impl TorHttpClient {
         info!("Making {} request to {} through Tor", request.method, request.url);
         
         // Parse URL to get host and port
-        let host = request.url.host_str()
-            .ok_or_else(|| TorError::http_request("Invalid URL: no host"))?;
+        let url = request.url.clone();
+        let host = url.host_str()
+            .ok_or_else(|| TorError::http_request("Invalid URL: no host"))?.to_string();
         
-        let port = request.url.port_or_known_default()
+        let port = url.port_or_known_default()
             .ok_or_else(|| TorError::http_request("Invalid URL: no port"))?;
         
-        let is_https = request.url.scheme() == "https";
+        let is_https = url.scheme() == "https";
         
         debug!("Target: {}:{} (HTTPS: {})", host, port, is_https);
         
@@ -124,13 +125,14 @@ impl TorHttpClient {
         };
         
         // Begin stream
-        let stream = tunnel.begin_stream(host, port, None)
+        let stream = tunnel.begin_stream(&host, port, None)
             .await
             .map_err(|e| TorError::Network(format!("Failed to begin stream: {}", e)))?;
             
         let mut boxed_stream: Box<dyn AnyStream> = if is_https {
-            let server_name = rustls::pki_types::ServerName::try_from(host)
-                .map_err(|_| TorError::http_request("Invalid DNS name"))?;
+            let server_name = rustls::pki_types::ServerName::try_from(host.as_str())
+                .map_err(|_| TorError::http_request("Invalid DNS name"))?
+                .to_owned();
 
             let tls_stream = self.tls_connector.connect(server_name, stream.compat()).await
                 .map_err(|e| TorError::Network(format!("TLS connect failed: {}", e)))?;
@@ -145,7 +147,7 @@ impl TorHttpClient {
         let target = format!("{}{}", path, query);
         
         let mut headers = request.headers.clone();
-        headers.entry("Host".to_string()).or_insert_with(|| host.to_string());
+        headers.entry("Host".to_string()).or_insert_with(|| host.clone());
         headers.entry("Connection".to_string()).or_insert_with(|| "close".to_string());
         headers.entry("User-Agent".to_string()).or_insert_with(|| "webtor-rs/0.1.0".to_string());
         
@@ -175,7 +177,7 @@ impl TorHttpClient {
         boxed_stream.read_to_end(&mut response_buf).await
             .map_err(|e| TorError::Network(format!("Failed to read response: {}", e)))?;
             
-        Self::parse_response(response_buf, request.url)
+        Self::parse_response(response_buf, url)
     }
     
     fn parse_response(data: Vec<u8>, url: Url) -> Result<HttpResponse> {
