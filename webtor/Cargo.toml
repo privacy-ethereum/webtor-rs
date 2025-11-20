@@ -53,6 +53,10 @@ wasm-bindgen = { workspace = true }
 js-sys = { workspace = true }
 httparse = "1.10.1"
 tor-checkable = "0.36.0"
+tokio-rustls = "0.25"
+rustls = "0.22"
+rustls-webpki = "0.101"
+tokio-util = { version = "0.7", features = ["compat"] }
 
 [dev-dependencies]
 tokio-test = "0.4"

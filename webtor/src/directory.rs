@@ -158,14 +158,26 @@ impl DirectoryManager {
             // Note: MdConsensus routers might not have all keys directly accessible 
             // in the same way as full descriptors, but let's try to extract what we can.
             
-            let relay = Relay::new(
+            let ntor_onion_key = hex::encode(router.ntor_onion_key().as_bytes());
+
+            let mut relay = Relay::new(
                 fingerprint,
                 nickname,
                 address,
                 or_port,
                 flags,
-                "0000000000000000000000000000000000000000000000000000000000000000".to_string(), // Missing ntor key!
+                ntor_onion_key,
             );
+
+            if let Some(ed_id) = router.ed_identity() {
+                relay.ed25519_identity = Some(hex::encode(ed_id.as_bytes()));
+            }
+
+            relay.consensus_weight = router.weight().weight() as u32;
+            if let Some(version) = router.version() {
+                relay.version = version.to_string();
+            }
+            relay.microdescriptor_hash = hex::encode(router.md_digest());
             
             relays.push(relay);
         }
