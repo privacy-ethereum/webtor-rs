@@ -7,6 +7,7 @@
 pub mod client;
 pub mod circuit;
 pub mod config;
+pub mod directory;
 pub mod error;
 pub mod http;
 pub mod relay;

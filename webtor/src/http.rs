@@ -5,8 +5,10 @@ use crate::error::{Result, TorError};
 use http::Method;
 use std::collections::HashMap;
 use std::time::Duration;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use url::Url;
+use futures::{AsyncReadExt, AsyncWriteExt};
+use std::sync::Arc;
 
 /// HTTP request configuration
 #[derive(Debug, Clone)]
@@ -87,21 +89,93 @@ impl TorHttpClient {
         // Get a ready circuit
         let circuit = self.circuit_manager.get_ready_circuit().await?;
         
-        // Update circuit last used time
-        {
+        // Get the internal tunnel
+        let tunnel = {
             let mut circuit_write = circuit.write().await;
             circuit_write.update_last_used();
+            circuit_write.internal_circuit.clone()
+                .ok_or_else(|| TorError::Internal("Circuit has no internal tunnel".to_string()))?
+        };
+        
+        // Begin stream
+        let mut stream = tunnel.begin_stream(host, port, None)
+            .await
+            .map_err(|e| TorError::Network(format!("Failed to begin stream: {}", e)))?;
+            
+        // Construct HTTP request
+        let path = request.url.path();
+        let query = request.url.query().map(|q| format!("?{}", q)).unwrap_or_default();
+        let target = format!("{}{}", path, query);
+        
+        let mut headers = request.headers.clone();
+        headers.entry("Host".to_string()).or_insert_with(|| host.to_string());
+        headers.entry("Connection".to_string()).or_insert_with(|| "close".to_string());
+        headers.entry("User-Agent".to_string()).or_insert_with(|| "webtor-rs/0.1.0".to_string());
+        
+        let mut req_buf = Vec::new();
+        req_buf.extend_from_slice(format!("{} {} HTTP/1.1\r\n", request.method, target).as_bytes());
+        
+        for (key, value) in headers {
+            req_buf.extend_from_slice(format!("{}: {}\r\n", key, value).as_bytes());
         }
         
-        // For now, we'll return a placeholder response
-        Ok(HttpResponse {
-            status: 200,
-            headers: HashMap::new(),
-            body: b"Placeholder response - full implementation pending".to_vec(),
-            url: request.url.clone(),
-        })
+        if let Some(body) = &request.body {
+            req_buf.extend_from_slice(format!("Content-Length: {}\r\n", body.len()).as_bytes());
+            req_buf.extend_from_slice(b"\r\n");
+            req_buf.extend_from_slice(body);
+        } else {
+            req_buf.extend_from_slice(b"\r\n");
+        }
+        
+        // Write request
+        stream.write_all(&req_buf).await
+            .map_err(|e| TorError::Network(format!("Failed to write request: {}", e)))?;
+        stream.flush().await
+            .map_err(|e| TorError::Network(format!("Failed to flush request: {}", e)))?;
+            
+        // Read response
+        // Simplified reading: read until end (Connection: close)
+        // In a real implementation, we should parse headers and handle Content-Length/Chunked
+        let mut response_buf = Vec::new();
+        stream.read_to_end(&mut response_buf).await
+            .map_err(|e| TorError::Network(format!("Failed to read response: {}", e)))?;
+            
+        Self::parse_response(response_buf, request.url)
     }
     
+    fn parse_response(data: Vec<u8>, url: Url) -> Result<HttpResponse> {
+        // Simple HTTP parser
+        // Split into headers and body
+        let mut headers = [httparse::Header { name: "", value: &[] }; 64];
+        let mut req = httparse::Response::new(&mut headers);
+        
+        let status = match req.parse(&data) {
+            Ok(httparse::Status::Complete(n)) => {
+                let code = req.code.unwrap_or(0);
+                let mut headers_map = HashMap::new();
+                
+                for header in req.headers {
+                    if let Ok(value) = std::str::from_utf8(header.value) {
+                        headers_map.insert(header.name.to_string(), value.to_string());
+                    }
+                }
+                
+                let body = data[n..].to_vec();
+                
+                HttpResponse {
+                    status: code,
+                    headers: headers_map,
+                    body,
+                    url,
+                }
+            },
+            Ok(httparse::Status::Partial) => return Err(TorError::serialization("Partial response received")),
+            Err(e) => return Err(TorError::serialization(format!("Failed to parse response: {}", e))),
+        };
+        
+        Ok(status)
+    }
+
     /// Convenience method for GET requests
     pub async fn get(&self, url: &str) -> Result<HttpResponse> {
         let url = Url::parse(url)?;
@@ -208,7 +282,7 @@ mod tests {
             create_test_relay("exit1", vec![flags::FAST, flags::STABLE, flags::EXIT]),
         ];
         
-        let relay_manager = RelayManager::new(relays);
+        let relay_manager = Arc::new(RwLock::new(RelayManager::new(relays)));
         let channel = Arc::new(RwLock::new(None));
         let circuit_manager = CircuitManager::new(relay_manager, channel);
         let http_client = TorHttpClient::new(circuit_manager);
