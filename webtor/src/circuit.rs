@@ -336,6 +336,13 @@ impl CircuitManager {
         relay_manager.update_relays(new_relays);
     }
     
+    /// Synchronous version of update_relays for use when we already have a mutable reference
+    pub fn update_relay_list(&mut self, new_relays: Vec<crate::relay::Relay>) {
+        if let Ok(mut relay_manager) = self.relay_manager.try_write() {
+            relay_manager.update_relays(new_relays);
+        }
+    }
+    
     /// Clean up failed and old circuits
     pub async fn cleanup_circuits(&self) -> Result<()> {
         let mut circuits = self.circuits.write().await;

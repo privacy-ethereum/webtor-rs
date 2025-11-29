@@ -27,6 +27,7 @@ tor-cell = { workspace = true }
 tor-error = { workspace = true }
 tor-async-utils = { workspace = true }
 tor-memquota = { workspace = true }
+tor-checkable = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 
 # Cryptography

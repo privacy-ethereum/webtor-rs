@@ -2,6 +2,7 @@
 
 use crate::circuit::{CircuitManager, CircuitStatusInfo};
 use crate::config::{LogType, TorClientOptions};
+use crate::consensus::ConsensusManager;
 use crate::error::{Result, TorError};
 use crate::http::{HttpRequest, HttpResponse, TorHttpClient};
 use crate::relay::RelayManager;
@@ -29,6 +30,8 @@ pub struct TorClient {
     // Store the channel to prevent it from being dropped
     channel: Arc<RwLock<Option<Arc<tor_proto::channel::Channel>>>>,
     update_task: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
+    // Consensus manager for relay discovery
+    consensus_manager: Arc<ConsensusManager>,
 }
 
 impl TorClient {
@@ -42,7 +45,10 @@ impl TorClient {
         // Channel storage
         let channel = Arc::new(RwLock::new(None));
         
-        // Create relay manager with empty relay list (will be populated later)
+        // Create consensus manager for fetching relay information
+        let consensus_manager = Arc::new(ConsensusManager::new());
+        
+        // Create relay manager with empty relay list (will be populated from consensus)
         let relay_manager = RelayManager::new(Vec::new());
         let circuit_manager = CircuitManager::new(relay_manager, channel.clone());
         let http_client = TorHttpClient::new(circuit_manager.clone());
@@ -54,6 +60,7 @@ impl TorClient {
             is_initialized: Arc::new(RwLock::new(false)),
             channel,
             update_task: Arc::new(RwLock::new(None)),
+            consensus_manager,
         };
         
         // Create initial circuit if requested
@@ -171,6 +178,35 @@ impl TorClient {
         }
         
         "Ready".to_string()
+    }
+    
+    /// Refresh the relay list from the Tor network consensus
+    /// This should be called periodically (consensus updates every ~1 hour)
+    pub async fn refresh_consensus(&self) -> Result<usize> {
+        info!("Refreshing consensus...");
+        self.log("Fetching network consensus", LogType::Info);
+        
+        let relays = self.consensus_manager.get_relays().await?;
+        let count = relays.len();
+        
+        // Update the relay manager with new relays
+        let mut circuit_manager = self.circuit_manager.write().await;
+        circuit_manager.update_relay_list(relays);
+        
+        self.log(&format!("Got {} relays from consensus", count), LogType::Success);
+        info!("Consensus refreshed with {} relays", count);
+        
+        Ok(count)
+    }
+    
+    /// Get the current consensus cache status
+    pub async fn get_consensus_status(&self) -> String {
+        self.consensus_manager.cache_status().await
+    }
+    
+    /// Check if consensus needs to be refreshed
+    pub async fn needs_consensus_refresh(&self) -> bool {
+        self.consensus_manager.needs_refresh().await
     }
     
     /// Close the Tor client and clean up resources
@@ -300,11 +336,9 @@ impl TorClient {
 
 impl Drop for TorClient {
     fn drop(&mut self) {
-        // Try to clean up, but don't block since we're in drop
-        let client = self.clone();
-        tokio::spawn(async move {
-            client.close().await;
-        });
+        // Cancel update task if running - we can't do async cleanup in drop
+        // The task will be aborted automatically when the JoinHandle is dropped
+        // Resources will be cleaned up by their own Drop implementations
     }
 }
 
@@ -317,6 +351,7 @@ impl Clone for TorClient {
             is_initialized: self.is_initialized.clone(),
             channel: self.channel.clone(),
             update_task: self.update_task.clone(),
+            consensus_manager: self.consensus_manager.clone(),
         }
     }
 }

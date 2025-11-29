@@ -21,6 +21,7 @@ webtor-rs/
 │       ├── client.rs            # Main TorClient implementation
 │       ├── circuit.rs           # Circuit management
 │       ├── config.rs            # Configuration options
+│       ├── consensus.rs         # Consensus fetching and caching
 │       ├── error.rs             # Error types and handling
 │       ├── http.rs              # HTTP client through Tor
 │       ├── relay.rs             # Relay selection and management
@@ -64,24 +65,30 @@ webtor-rs/
    - Consensus-based relay filtering
    - Bandwidth and stability considerations
 
-4. **HTTP Client** (`webtor/src/http.rs`)
+4. **Consensus Manager** (`webtor/src/consensus.rs`)
+   - Fetches network consensus from directory authorities
+   - Parses consensus documents with `tor-netdoc`
+   - Fetches microdescriptors for ntor onion keys
+   - Caches with TTL (1 hour fresh, 3 hours valid)
+
+5. **HTTP Client** (`webtor/src/http.rs`)
    - HTTP/HTTPS requests through Tor circuits
    - TLS setup for secure connections
    - Request/response handling with proper formatting
    - Support for various HTTP methods
 
-5. **Snowflake Integration** (`webtor/src/snowflake.rs`)
+6. **Snowflake Integration** (`webtor/src/snowflake.rs`)
    - WebSocket-based bridge communication
    - Connection management and error handling
    - Binary data transfer for Tor protocol
 
-6. **WebAssembly Bindings** (`webtor-wasm/src/lib.rs`)
+7. **WebAssembly Bindings** (`webtor-wasm/src/lib.rs`)
    - JavaScript-friendly API with Promises
    - Type-safe interfaces for TypeScript
    - Memory management for WASM
    - Console logging integration
 
-7. **Demo Application** (`webtor-demo/src/lib.rs`)
+8. **Demo Application** (`webtor-demo/src/lib.rs`)
    - Interactive webpage demonstrating all features
    - Real-time circuit status monitoring
    - Multiple request types (persistent vs isolated)
@@ -182,7 +189,8 @@ Flexible configuration in `webtor/src/config.rs`:
 - [x] Fix CI build issues (vendored dependencies)
 - [x] Require bridge fingerprint for proper verification
 - [x] Implement full Tor circuit creation (CREATE_FAST/CREATE2)
-- [ ] Add consensus fetching from directory authorities
+- [x] Add consensus fetching from directory authorities (with 1-hour caching)
+- [x] Parse microdescriptors for ntor onion keys
 - [ ] Integrate with real Tor network
 
 ### Phase 2 (Medium-term)

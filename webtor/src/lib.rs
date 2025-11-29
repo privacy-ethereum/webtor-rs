@@ -7,6 +7,7 @@
 pub mod client;
 pub mod circuit;
 pub mod config;
+pub mod consensus;
 pub mod error;
 pub mod http;
 pub mod relay;
@@ -16,6 +17,7 @@ pub mod wasm_runtime;
 
 pub use client::TorClient;
 pub use config::TorClientOptions;
+pub use consensus::ConsensusManager;
 pub use error::{TorError, Result};
 
 // Re-export commonly used types

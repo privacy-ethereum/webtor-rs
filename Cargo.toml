@@ -73,6 +73,7 @@ tor-async-utils = "0.36.0"
 tor-memquota = "0.36.0"
 tor-protover = "0.36.0"
 tor-units = "0.36.0"
+tor-checkable = "0.36.0"
 
 # Cryptography
 rsa = "0.9"

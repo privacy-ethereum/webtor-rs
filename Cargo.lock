@@ -4188,6 +4188,7 @@ dependencies = [
  "tokio-test",
  "tor-async-utils",
  "tor-cell",
+ "tor-checkable",
  "tor-error",
  "tor-linkspec",
  "tor-llcrypto",
