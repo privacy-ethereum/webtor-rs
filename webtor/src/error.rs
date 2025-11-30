@@ -42,6 +42,9 @@ pub enum TorError {
     #[error("Network error: {0}")]
     Network(String),
     
+    #[error("Protocol error: {0}")]
+    Protocol(String),
+    
     #[error("WASM error: {0}")]
     Wasm(String),
     
@@ -98,6 +101,10 @@ impl TorError {
     }
     
     pub fn tls_setup(msg: impl Into<String>) -> Self {
+        TorError::TlsSetup(msg.into())
+    }
+    
+    pub fn tls(msg: impl Into<String>) -> Self {
         TorError::TlsSetup(msg.into())
     }
     

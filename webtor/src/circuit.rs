@@ -9,6 +9,7 @@ use tracing::{debug, info, error};
 use tor_proto::{ClientTunnel, CellCount, FlowCtrlParameters};
 use tor_proto::circuit::CircParameters;
 use tor_proto::client::circuit::TimeoutEstimator;
+use tor_proto::client::stream::DataStream;
 use tor_proto::channel::Channel;
 use tor_linkspec::HasRelayIds;
 use tor_proto::ccparams::{
@@ -87,6 +88,24 @@ impl Circuit {
     
     pub fn is_closed(&self) -> bool {
         self.status == CircuitStatus::Closed
+    }
+    
+    /// Begin a TCP stream to the given host and port through this circuit.
+    /// 
+    /// The hostname resolution is performed by the exit relay, so you can
+    /// pass hostnames instead of IP addresses.
+    pub async fn begin_stream(&self, host: &str, port: u16) -> Result<DataStream> {
+        let tunnel = self.internal_circuit.as_ref()
+            .ok_or_else(|| TorError::Internal("No internal circuit available".to_string()))?;
+        
+        debug!("Beginning stream to {}:{}", host, port);
+        
+        let stream = tunnel.begin_stream(host, port, None)
+            .await
+            .map_err(|e| TorError::Internal(format!("Failed to begin stream: {}", e)))?;
+        
+        info!("Stream established to {}:{}", host, port);
+        Ok(stream)
     }
 }
 
@@ -339,7 +358,6 @@ impl CircuitManager {
     /// Clean up failed and old circuits
     pub async fn cleanup_circuits(&self) -> Result<()> {
         let mut circuits = self.circuits.write().await;
-        let now = Instant::now();
         let max_age = Duration::from_secs(60 * 60); // 1 hour
         let max_idle = Duration::from_secs(60 * 10); // 10 minutes
         
@@ -400,7 +418,7 @@ impl CircuitStatusInfo {
 mod tests {
     use super::*;
     use crate::relay::{Relay, flags};
-    use std::collections::HashSet;
+    
     
     fn create_test_relay(fingerprint: &str, flags: Vec<&str>) -> Relay {
         Relay::new(

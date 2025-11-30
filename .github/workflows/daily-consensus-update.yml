@@ -1,0 +1,106 @@
+name: Daily Consensus Update
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC (after Tor consensus refresh cycle)
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    # Allow manual trigger
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "consensus-update"
+  cancel-in-progress: true
+
+jobs:
+  update-consensus:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch fresh consensus
+        run: |
+          chmod +x scripts/fetch-consensus.sh
+          ./scripts/fetch-consensus.sh webtor/src/cached
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if git diff --quiet webtor/src/cached/; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No consensus changes detected"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Consensus updated"
+          fi
+
+      - name: Commit updated consensus
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add webtor/src/cached/
+          git commit -m "chore: update cached Tor consensus $(date -u +%Y-%m-%d)"
+          git push
+
+  build-and-deploy:
+    needs: update-consensus
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with latest consensus)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Pull latest changes
+        run: git pull origin main
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build WASM module
+        run: wasm-pack build webtor-wasm --target web --out-dir ../example/pkg
+
+      - name: Install dependencies
+        working-directory: ./example
+        run: npm install
+
+      - name: Build example app
+        working-directory: ./example
+        run: npm run build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./example/dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build-and-deploy
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

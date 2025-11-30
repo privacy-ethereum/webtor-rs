@@ -14,10 +14,48 @@ impl fmt::Debug for LogCallback {
     }
 }
 
+/// Known Snowflake bridge fingerprints (from Tor Browser defaults)
+pub const SNOWFLAKE_FINGERPRINT_PRIMARY: &str = "2B280B23E1107BB62ABFC40DDCC8824814F80A72";
+pub const SNOWFLAKE_FINGERPRINT_SECONDARY: &str = "8838024498816A039FCBBAB14E6F40A0843051FA";
+
+/// Known Snowflake broker URLs
+pub const SNOWFLAKE_URL_PRIMARY: &str = "wss://snowflake.torproject.net/";
+pub const SNOWFLAKE_URL_SECONDARY: &str = "wss://snowflake.bamsoftware.com/";
+
+/// Bridge type configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BridgeType {
+    /// Snowflake bridge (WebSocket + Turbo + KCP + SMUX)
+    Snowflake {
+        /// WebSocket URL for Snowflake broker
+        url: String,
+    },
+    /// WebTunnel bridge (HTTPS with HTTP Upgrade)
+    WebTunnel {
+        /// Full URL to the WebTunnel endpoint (e.g., https://example.com/secret-path)
+        url: String,
+        /// Optional: Override server name for TLS SNI
+        server_name: Option<String>,
+    },
+}
+
+impl Default for BridgeType {
+    fn default() -> Self {
+        // Default to Snowflake since it's more reliable
+        BridgeType::Snowflake {
+            url: SNOWFLAKE_URL_PRIMARY.to_string(),
+        }
+    }
+}
+
 /// Configuration options for the TorClient
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TorClientOptions {
-    /// The Snowflake bridge WebSocket URL for Tor connections
+    /// Bridge configuration
+    pub bridge: BridgeType,
+    
+    /// The Snowflake bridge WebSocket URL for Tor connections (deprecated, use bridge)
+    #[serde(default)]
     pub snowflake_url: String,
     
     /// Timeout in milliseconds for establishing initial connections
@@ -68,7 +106,8 @@ impl std::fmt::Display for LogType {
 impl Default for TorClientOptions {
     fn default() -> Self {
         Self {
-            snowflake_url: "wss://snowflake.torproject.net/".to_string(),
+            bridge: BridgeType::default(),
+            snowflake_url: String::new(),
             connection_timeout: default_connection_timeout(),
             circuit_timeout: default_circuit_timeout(),
             create_circuit_early: default_create_circuit_early(),
@@ -101,9 +140,59 @@ fn default_circuit_update_advance() -> u64 {
 }
 
 impl TorClientOptions {
-    pub fn new(snowflake_url: String) -> Self {
+    /// Create options for Snowflake bridge using default Tor Project broker
+    pub fn snowflake() -> Self {
         Self {
-            snowflake_url,
+            bridge: BridgeType::Snowflake { 
+                url: SNOWFLAKE_URL_PRIMARY.to_string(),
+            },
+            bridge_fingerprint: Some(SNOWFLAKE_FINGERPRINT_PRIMARY.to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// Create options for Snowflake bridge with custom URL
+    pub fn snowflake_with_url(url: String) -> Self {
+        // Determine fingerprint based on URL
+        let fingerprint = if url.contains("bamsoftware.com") {
+            SNOWFLAKE_FINGERPRINT_SECONDARY
+        } else {
+            SNOWFLAKE_FINGERPRINT_PRIMARY
+        };
+        
+        Self {
+            bridge: BridgeType::Snowflake { url: url.clone() },
+            snowflake_url: url,
+            bridge_fingerprint: Some(fingerprint.to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// Create options for a Snowflake bridge (legacy - use snowflake() instead)
+    pub fn new(snowflake_url: String) -> Self {
+        Self::snowflake_with_url(snowflake_url)
+    }
+
+    /// Create options for a WebTunnel bridge
+    pub fn webtunnel(url: String, fingerprint: String) -> Self {
+        Self {
+            bridge: BridgeType::WebTunnel { 
+                url, 
+                server_name: None,
+            },
+            bridge_fingerprint: Some(fingerprint),
+            ..Default::default()
+        }
+    }
+
+    /// Create options for a WebTunnel bridge with custom server name
+    pub fn webtunnel_with_sni(url: String, fingerprint: String, server_name: String) -> Self {
+        Self {
+            bridge: BridgeType::WebTunnel { 
+                url, 
+                server_name: Some(server_name),
+            },
+            bridge_fingerprint: Some(fingerprint),
             ..Default::default()
         }
     }

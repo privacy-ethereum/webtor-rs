@@ -1,0 +1,4 @@
+# Keep only Brotli-compressed files in git
+consensus.txt
+microdescriptors.txt
+*.gz

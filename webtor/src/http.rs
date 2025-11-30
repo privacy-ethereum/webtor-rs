@@ -2,12 +2,12 @@
 
 use crate::circuit::CircuitManager;
 use crate::error::{Result, TorError};
+use crate::tls::wrap_with_tls;
+use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use http::Method;
 use std::collections::HashMap;
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
-use tokio_rustls::TlsConnector;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use tokio::sync::RwLock;
 use url::Url;
 use futures::{AsyncReadExt as FuturesAsyncReadExt, AsyncWriteExt as FuturesAsyncWriteExt};
@@ -65,6 +65,58 @@ impl HttpRequest {
         self.timeout = timeout;
         self
     }
+    
+    /// Build the HTTP request as raw bytes
+    fn build_request(&self, host: &str) -> Vec<u8> {
+        let path = if self.url.path().is_empty() {
+            "/"
+        } else {
+            self.url.path()
+        };
+        
+        let query = self.url.query().map(|q| format!("?{}", q)).unwrap_or_default();
+        
+        let mut request = format!(
+            "{} {}{} HTTP/1.1\r\nHost: {}\r\n",
+            self.method.as_str(),
+            path,
+            query,
+            host
+        );
+        
+        // Add default headers if not present
+        if !self.headers.contains_key("User-Agent") && !self.headers.contains_key("user-agent") {
+            request.push_str("User-Agent: webtor-rs/0.1.0\r\n");
+        }
+        if !self.headers.contains_key("Accept") && !self.headers.contains_key("accept") {
+            request.push_str("Accept: */*\r\n");
+        }
+        if !self.headers.contains_key("Connection") && !self.headers.contains_key("connection") {
+            request.push_str("Connection: close\r\n");
+        }
+        
+        // Add custom headers
+        for (key, value) in &self.headers {
+            request.push_str(&format!("{}: {}\r\n", key, value));
+        }
+        
+        // Add content-length for POST/PUT requests with body
+        if let Some(ref body) = self.body {
+            request.push_str(&format!("Content-Length: {}\r\n", body.len()));
+        }
+        
+        // End headers
+        request.push_str("\r\n");
+        
+        let mut bytes = request.into_bytes();
+        
+        // Add body if present
+        if let Some(ref body) = self.body {
+            bytes.extend_from_slice(body);
+        }
+        
+        bytes
+    }
 }
 
 trait AnyStream: AsyncRead + AsyncWrite + Send + Unpin {}
@@ -116,6 +168,7 @@ impl TorHttpClient {
         let circuit_manager = self.circuit_manager.read().await;
         let circuit = circuit_manager.get_ready_circuit().await?;
         
+<<<<<<< HEAD
         // Get the internal tunnel
         let tunnel = {
             let mut circuit_write = circuit.write().await;
@@ -178,6 +231,32 @@ impl TorHttpClient {
             .map_err(|e| TorError::Network(format!("Failed to read response: {}", e)))?;
             
         Self::parse_response(response_buf, url)
+=======
+        // Update circuit last used time and begin stream
+        let stream = {
+            let mut circuit_write = circuit.write().await;
+            circuit_write.update_last_used();
+            circuit_write.begin_stream(host, port).await?
+        };
+        
+        // Build the HTTP request
+        let request_bytes = request.build_request(host);
+        debug!("Sending {} bytes of HTTP request", request_bytes.len());
+        
+        // Execute request with or without TLS
+        let response_bytes = if is_https {
+            // Wrap stream with TLS
+            let tls_stream = wrap_with_tls(stream, host).await?;
+            execute_http_request(tls_stream, &request_bytes).await?
+        } else {
+            execute_http_request(stream, &request_bytes).await?
+        };
+        
+        info!("Received {} bytes of HTTP response", response_bytes.len());
+        
+        // Parse the HTTP response
+        parse_http_response(&response_bytes, request.url)
+>>>>>>> e5f937e (feat: Add Snowflake WebRTC and WebTunnel transports)
     }
     
     fn parse_response(data: Vec<u8>, url: Url) -> Result<HttpResponse> {
@@ -228,6 +307,102 @@ impl TorHttpClient {
             .with_body(body);
         self.request(request).await
     }
+}
+
+/// Execute an HTTP request over a stream and return the response bytes
+async fn execute_http_request<S>(mut stream: S, request_bytes: &[u8]) -> Result<Vec<u8>>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    // Write the request
+    stream.write_all(request_bytes).await
+        .map_err(|e| TorError::http_request(format!("Failed to write request: {}", e)))?;
+    stream.flush().await
+        .map_err(|e| TorError::http_request(format!("Failed to flush request: {}", e)))?;
+    
+    // Read the response
+    let mut response_bytes = Vec::new();
+    let mut buf = [0u8; 8192];
+    
+    loop {
+        match stream.read(&mut buf).await {
+            Ok(0) => break, // EOF
+            Ok(n) => {
+                response_bytes.extend_from_slice(&buf[..n]);
+                debug!("Read {} bytes (total: {})", n, response_bytes.len());
+                
+                // Limit response size to 1MB for safety
+                if response_bytes.len() > 1024 * 1024 {
+                    warn!("Response exceeds 1MB limit, truncating");
+                    break;
+                }
+            }
+            Err(e) => {
+                if response_bytes.is_empty() {
+                    return Err(TorError::http_request(format!("Failed to read response: {}", e)));
+                }
+                // We have some data, maybe connection was closed
+                debug!("Read ended with error (may be normal close): {}", e);
+                break;
+            }
+        }
+    }
+    
+    Ok(response_bytes)
+}
+
+/// Parse raw HTTP response bytes into HttpResponse
+fn parse_http_response(data: &[u8], url: Url) -> Result<HttpResponse> {
+    // Find the header/body separator
+    let header_end = find_subsequence(data, b"\r\n\r\n")
+        .ok_or_else(|| TorError::http_request("Invalid HTTP response: no header separator"))?;
+    
+    let header_bytes = &data[..header_end];
+    let body = data[header_end + 4..].to_vec();
+    
+    let header_str = std::str::from_utf8(header_bytes)
+        .map_err(|e| TorError::http_request(format!("Invalid HTTP headers: {}", e)))?;
+    
+    let mut lines = header_str.lines();
+    
+    // Parse status line: "HTTP/1.1 200 OK"
+    let status_line = lines.next()
+        .ok_or_else(|| TorError::http_request("Invalid HTTP response: no status line"))?;
+    
+    let parts: Vec<&str> = status_line.splitn(3, ' ').collect();
+    if parts.len() < 2 {
+        return Err(TorError::http_request("Invalid HTTP status line"));
+    }
+    
+    let status: u16 = parts[1].parse()
+        .map_err(|e| TorError::http_request(format!("Invalid status code: {}", e)))?;
+    
+    // Parse headers
+    let mut headers = HashMap::new();
+    for line in lines {
+        if let Some((key, value)) = line.split_once(':') {
+            headers.insert(
+                key.trim().to_lowercase(),
+                value.trim().to_string()
+            );
+        }
+    }
+    
+    debug!("Parsed response: status={}, headers={}, body_len={}", 
+           status, headers.len(), body.len());
+    
+    Ok(HttpResponse {
+        status,
+        headers,
+        body,
+        url,
+    })
+}
+
+/// Find the position of a subsequence in a byte slice
+fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len())
+        .position(|window| window == needle)
 }
 
 /// HTTP response from Tor
@@ -288,6 +463,33 @@ mod tests {
         assert_eq!(request.timeout, Duration::from_secs(30));
     }
     
+    #[test]
+    fn test_build_request() {
+        let url = Url::parse("http://example.com/path?query=1").unwrap();
+        let request = HttpRequest::new(url)
+            .with_header("X-Custom", "value");
+        
+        let bytes = request.build_request("example.com");
+        let request_str = String::from_utf8(bytes).unwrap();
+        
+        assert!(request_str.starts_with("GET /path?query=1 HTTP/1.1\r\n"));
+        assert!(request_str.contains("Host: example.com\r\n"));
+        assert!(request_str.contains("X-Custom: value\r\n"));
+        assert!(request_str.ends_with("\r\n\r\n"));
+    }
+    
+    #[test]
+    fn test_parse_http_response() {
+        let response_bytes = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, World!";
+        let url = Url::parse("http://example.com/").unwrap();
+        
+        let response = parse_http_response(response_bytes, url).unwrap();
+        
+        assert_eq!(response.status, 200);
+        assert_eq!(response.headers.get("content-type"), Some(&"text/plain".to_string()));
+        assert_eq!(response.text().unwrap(), "Hello, World!");
+    }
+    
     #[tokio::test]
     async fn test_http_response() {
         let response = HttpResponse {
@@ -323,8 +525,8 @@ mod tests {
         let circuit_manager = Arc::new(RwLock::new(CircuitManager::new(Arc::new(RwLock::new(relay_manager)), Arc::new(RwLock::new(None)))));
         let http_client = TorHttpClient::new(circuit_manager);
         
-        // This will fail because we don't have WASM WebSocket implementation
-        let result = http_client.get("https://httpbin.org/ip").await;
+        // This will fail because we don't have a real circuit
+        let result = http_client.get("http://httpbin.org/ip").await;
         assert!(result.is_err());
     }
 }

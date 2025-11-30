@@ -1,12 +1,14 @@
 //! Main Tor client implementation
 
 use crate::circuit::{CircuitManager, CircuitStatusInfo};
-use crate::config::{LogType, TorClientOptions};
+use crate::config::{BridgeType, LogType, TorClientOptions, SNOWFLAKE_FINGERPRINT_PRIMARY};
 use crate::directory::DirectoryManager;
 use crate::error::{Result, TorError};
 use crate::http::{HttpRequest, HttpResponse, TorHttpClient};
 use crate::relay::RelayManager;
+#[cfg(target_arch = "wasm32")]
 use crate::snowflake::create_snowflake_stream;
+use crate::webtunnel::{WebTunnelConfig, create_webtunnel_stream};
 use crate::wasm_runtime::WasmRuntime;
 use tor_proto::channel::ChannelBuilder;
 use http::Method;
@@ -64,7 +66,18 @@ impl TorClient {
         
         // Create initial circuit if requested
         if options.create_circuit_early {
-            info!("Establishing channel early");
+            info!("Establishing connection early");
+            
+            // First, fetch consensus to get relay information
+            info!("Fetching network consensus...");
+            match client.refresh_consensus().await {
+                Ok(count) => info!("Got {} relays from consensus", count),
+                Err(e) => {
+                    warn!("Failed to fetch consensus: {} - circuit extension will fail", e);
+                }
+            }
+            
+            // Then establish the channel
             if let Err(e) = client.establish_channel().await {
                 error!("Failed to establish channel: {}", e);
                 // Don't fail the client creation, just log the error
@@ -207,6 +220,54 @@ impl TorClient {
         "Ready".to_string()
     }
     
+<<<<<<< HEAD
+=======
+    /// Refresh the relay list from the Tor network consensus
+    /// This should be called periodically (consensus updates every ~1 hour)
+    pub async fn refresh_consensus(&self) -> Result<usize> {
+        info!("Refreshing consensus...");
+        self.log("Fetching network consensus", LogType::Info);
+        
+        let relays = self.consensus_manager.get_relays().await?;
+        let count = relays.len();
+        
+        // Update the relay manager with new relays
+        let mut circuit_manager = self.circuit_manager.write().await;
+        circuit_manager.update_relay_list(relays);
+        
+        self.log(&format!("Got {} relays from consensus", count), LogType::Success);
+        info!("Consensus refreshed with {} relays", count);
+        
+        Ok(count)
+    }
+    
+    /// Get the current consensus cache status
+    pub async fn get_consensus_status(&self) -> String {
+        self.consensus_manager.cache_status().await
+    }
+    
+    /// Check if consensus needs to be refreshed
+    pub async fn needs_consensus_refresh(&self) -> bool {
+        self.consensus_manager.needs_refresh().await
+    }
+    
+    /// Ensure the client is ready for making requests
+    /// This fetches consensus (if needed) and establishes a circuit
+    pub async fn ensure_ready(&self) -> Result<()> {
+        // Refresh consensus if needed
+        if self.needs_consensus_refresh().await {
+            self.refresh_consensus().await?;
+        }
+        
+        // Establish channel if not already done
+        if !*self.is_initialized.read().await {
+            self.establish_channel().await?;
+        }
+        
+        Ok(())
+    }
+    
+>>>>>>> e5f937e (feat: Add Snowflake WebRTC and WebTunnel transports)
     /// Close the Tor client and clean up resources
     pub async fn close(&self) {
         info!("Closing Tor client");
@@ -230,15 +291,102 @@ impl TorClient {
     async fn establish_channel(&self) -> Result<()> {
         self.log("Establishing channel", LogType::Info);
         
-        let snowflake_url = &self.options.snowflake_url;
         let timeout = Duration::from_millis(self.options.connection_timeout);
         
-        // 1. Connect to Snowflake bridge
-        let stream = create_snowflake_stream(snowflake_url, timeout).await?;
-        self.log("Connected to Snowflake bridge", LogType::Success);
+        // Get fingerprint - use default for Snowflake if not provided
+        let fingerprint = match &self.options.bridge {
+            BridgeType::Snowflake { .. } => {
+                self.options.bridge_fingerprint.as_ref()
+                    .map(|s| s.clone())
+                    .unwrap_or_else(|| SNOWFLAKE_FINGERPRINT_PRIMARY.to_string())
+            }
+            BridgeType::WebTunnel { .. } => {
+                self.options.bridge_fingerprint.as_ref()
+                    .ok_or_else(|| TorError::Configuration("Bridge fingerprint is required for WebTunnel".to_string()))?
+                    .clone()
+            }
+        };
         
-        // 2. Create Tor channel
-        // We need a runtime and memquota account
+        // Parse fingerprint to RSA identity
+        let rsa_id = {
+            let bytes = hex::decode(&fingerprint)
+                .map_err(|e| TorError::Configuration(format!("Invalid fingerprint hex: {}", e)))?;
+            if bytes.len() != 20 {
+                return Err(TorError::Configuration("Fingerprint must be 40 hex characters (20 bytes)".to_string()));
+            }
+            RsaIdentity::from_bytes(&bytes)
+                .ok_or_else(|| TorError::Configuration("Invalid RSA identity bytes".to_string()))?
+        };
+        
+        // 1. Connect to bridge based on type
+        let chan = match &self.options.bridge {
+            BridgeType::Snowflake { url: _ } => {
+                self.log("Connecting via Snowflake (WebRTC)", LogType::Info);
+                self.log("Using WebRTC → Turbo → KCP → SMUX stack", LogType::Info);
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let stream = create_snowflake_stream("", timeout).await?;
+                    self.log("Connected to Snowflake bridge", LogType::Success);
+                    self.create_channel_from_stream(stream, rsa_id).await?
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    return Err(TorError::Internal(
+                        "Snowflake requires WebRTC which is only available in WASM. \
+                         Use WebTunnel bridge for native builds.".to_string()
+                    ));
+                }
+            }
+            BridgeType::WebTunnel { url, server_name } => {
+                self.log(&format!("Connecting via WebTunnel to {}", url), LogType::Info);
+                let mut config = WebTunnelConfig::new(url.clone(), fingerprint.clone())
+                    .with_timeout(timeout);
+                if let Some(sni) = server_name {
+                    config = config.with_server_name(sni.clone());
+                }
+                let stream = create_webtunnel_stream(config).await?;
+                self.log("Connected to WebTunnel bridge", LogType::Success);
+                self.create_channel_from_stream(stream, rsa_id).await?
+            }
+        };
+        
+        // Store the channel to keep it alive
+        *self.channel.write().await = Some(chan);
+
+        self.log("Channel established", LogType::Success);
+        
+        // Now create the actual circuit through the Tor network
+        self.log("Creating circuit through Tor network...", LogType::Info);
+        
+        let circuit_manager = self.circuit_manager.read().await;
+        match circuit_manager.create_circuit().await {
+            Ok(circuit) => {
+                let circuit_info = circuit.read().await;
+                let relay_names: Vec<_> = circuit_info.relays.iter()
+                    .map(|r| r.nickname.clone())
+                    .collect();
+                self.log(&format!("Circuit created: {}", relay_names.join(" → ")), LogType::Success);
+            }
+            Err(e) => {
+                self.log(&format!("Failed to create circuit: {}", e), LogType::Error);
+                return Err(e);
+            }
+        }
+        
+        *self.is_initialized.write().await = true;
+        
+        Ok(())
+    }
+    
+    /// Create Tor channel from a connected stream and spawn the reactor
+    async fn create_channel_from_stream<S>(
+        &self,
+        stream: S,
+        rsa_id: RsaIdentity,
+    ) -> Result<Arc<tor_proto::channel::Channel>>
+    where
+        S: futures::AsyncRead + futures::AsyncWrite + Send + Unpin + tor_rtcompat::StreamOps + 'static,
+    {
         let runtime = WasmRuntime::new();
         
         // Create a no-op memory quota for now
@@ -255,44 +403,19 @@ impl TorClient {
             .map_err(|e| TorError::Network(format!("Handshake connect failed: {}", e)))?;
             
         // Construct peer target
-        let mut builder = OwnedChanTargetBuilder::default();
-        
-        // Use provided bridge fingerprint if available
-        let mut identity_set = false;
-        
-        if let Some(ref fingerprint) = self.options.bridge_fingerprint {
-             if let Ok(bytes) = hex::decode(fingerprint) {
-                 if bytes.len() == 20 {
-                     if let Some(rsa_id) = RsaIdentity::from_bytes(&bytes) {
-                         builder.rsa_identity(rsa_id);
-                         identity_set = true;
-                     }
-                 }
-             }
-        }
-        
-        // If no valid identity was set, fail early
-        if !identity_set {
-            return Err(TorError::Configuration("Bridge fingerprint is required for Snowflake connection".to_string()));
-        }
+        let mut peer_builder = OwnedChanTargetBuilder::default();
+        peer_builder.rsa_identity(rsa_id);
             
-        let peer = builder.build()
+        let peer = peer_builder.build()
             .map_err(|e| TorError::Internal(format!("Failed to build peer target: {}", e)))?;
 
-        let channel = unverified.check(&peer, &[], None) // Empty cert for now
+        let (chan, reactor) = unverified.check(&peer, &[], None)
             .map_err(|e| TorError::Network(format!("Handshake check failed: {}", e)))?
             .finish()
             .await
             .map_err(|e| TorError::Network(format!("Handshake finish failed: {}", e)))?;
-            
-        // channel is (Arc<Channel>, Reactor)
-        let (chan, reactor) = channel;
-        
-        // Store the channel to keep it alive
-        *self.channel.write().await = Some(chan);
         
         // Spawn reactor
-        // We need to spawn the reactor on our runtime (or just spawn_local since we are on WASM)
         #[cfg(target_arch = "wasm32")]
         wasm_bindgen_futures::spawn_local(async move {
             let _ = reactor.run().await;
@@ -302,11 +425,8 @@ impl TorClient {
         tokio::spawn(async move {
             let _ = reactor.run().await;
         });
-
-        *self.is_initialized.write().await = true;
-        self.log("Initial circuit created", LogType::Success);
-        
-        Ok(())
+            
+        Ok(chan)
     }
     
     /// Initialize WASM modules (placeholder)

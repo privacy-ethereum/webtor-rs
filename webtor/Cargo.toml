@@ -43,6 +43,16 @@ base64 = { workspace = true }
 url = { workspace = true }
 http = { workspace = true }
 
+# TLS
+rustls = { workspace = true }
+futures-rustls = { workspace = true }
+tokio-rustls = { workspace = true }
+webpki-roots = { workspace = true }
+rustls-pki-types = { workspace = true }
+
+# Native WebSocket (non-WASM only)
+tokio-tungstenite = { workspace = true }
+
 # Serialization
 serde = { workspace = true }
 serde_json = "1.0"
@@ -58,5 +68,12 @@ rustls = "0.22"
 webpki-roots = "0.26"
 tokio-util = { version = "0.7", features = ["compat"] }
 
+# KCP reliable transport
+kcp = { workspace = true }
+
+# WASM utilities
+gloo-timers = { workspace = true }
+
 [dev-dependencies]
 tokio-test = "0.4"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

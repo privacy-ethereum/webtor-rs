@@ -1,4 +1,4 @@
-//! WebSocket implementation for WASM
+//! WebSocket implementation for both WASM and native platforms
 
 use crate::error::{Result, TorError};
 use futures::{AsyncRead, AsyncWrite};
@@ -181,52 +181,166 @@ mod wasm {
             }
         }
     }
-    
-    // Implement Sync and Send appropriately if needed, though in WASM it's single threaded.
-    // Since we are using Rc in create, this struct is !Send and !Sync.
-    // Tor-proto might require Send/Sync depending on the runtime.
-    // In WASM with arti, we usually use a LocalRuntime or similar that allows !Send.
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
     use super::*;
+    use futures::stream::{SplitSink, SplitStream};
+    use futures::{Sink, Stream};
+    use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream as TungsteniteStream};
+    use tokio::net::TcpStream;
+    use tokio_tungstenite::tungstenite::Message;
+    use tracing::{debug, info, trace};
 
-    pub struct WebSocketStream;
+    /// Native WebSocket stream using tokio-tungstenite
+    pub struct WebSocketStream {
+        write: SplitSink<TungsteniteStream<MaybeTlsStream<TcpStream>>, Message>,
+        read: SplitStream<TungsteniteStream<MaybeTlsStream<TcpStream>>>,
+        buffer: Vec<u8>,
+    }
 
     impl WebSocketStream {
-        pub async fn connect(_url: &str) -> Result<Self> {
-            Err(TorError::Internal("WebSocket not supported on native arch".to_string()))
+        pub async fn connect(url: &str) -> Result<Self> {
+            info!("Connecting to WebSocket: {}", url);
+            
+            let (ws_stream, _response) = connect_async(url)
+                .await
+                .map_err(|e| TorError::Network(format!("WebSocket connection failed: {}", e)))?;
+            
+            debug!("WebSocket connected");
+            
+            let (write, read) = futures::StreamExt::split(ws_stream);
+            
+            Ok(Self {
+                write,
+                read,
+                buffer: Vec::new(),
+            })
         }
     }
 
     impl AsyncRead for WebSocketStream {
         fn poll_read(
-            self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-            _buf: &mut [u8],
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut [u8],
         ) -> Poll<io::Result<usize>> {
-            Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, "Not implemented")))
+            // First, drain internal buffer
+            if !self.buffer.is_empty() {
+                let len = std::cmp::min(buf.len(), self.buffer.len());
+                buf[0..len].copy_from_slice(&self.buffer[0..len]);
+                self.buffer.drain(0..len);
+                return Poll::Ready(Ok(len));
+            }
+
+            // Poll for the next message
+            trace!("WebSocket poll_read: polling for next message");
+            match Pin::new(&mut self.read).poll_next(cx) {
+                Poll::Ready(Some(Ok(msg))) => {
+                    let data = match msg {
+                        Message::Binary(data) => {
+                            trace!("WebSocket poll_read: got binary message {} bytes", data.len());
+                            data
+                        }
+                        Message::Text(text) => {
+                            trace!("WebSocket poll_read: got text message {} bytes", text.len());
+                            text.into_bytes()
+                        }
+                        Message::Ping(_) | Message::Pong(_) => {
+                            trace!("WebSocket poll_read: got ping/pong");
+                            // Wake up to poll again
+                            cx.waker().wake_by_ref();
+                            return Poll::Pending;
+                        }
+                        Message::Close(_) => {
+                            trace!("WebSocket poll_read: got close");
+                            return Poll::Ready(Ok(0)); // EOF
+                        }
+                        Message::Frame(_) => {
+                            trace!("WebSocket poll_read: got frame");
+                            cx.waker().wake_by_ref();
+                            return Poll::Pending;
+                        }
+                    };
+                    
+                    if data.is_empty() {
+                        cx.waker().wake_by_ref();
+                        return Poll::Pending;
+                    }
+                    
+                    let len = std::cmp::min(buf.len(), data.len());
+                    buf[0..len].copy_from_slice(&data[0..len]);
+                    
+                    // Store remaining
+                    if len < data.len() {
+                        self.buffer.extend_from_slice(&data[len..]);
+                    }
+                    
+                    Poll::Ready(Ok(len))
+                }
+                Poll::Ready(Some(Err(e))) => {
+                    trace!("WebSocket poll_read: error {}", e);
+                    Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e.to_string())))
+                }
+                Poll::Ready(None) => {
+                    trace!("WebSocket poll_read: EOF");
+                    Poll::Ready(Ok(0)) // EOF
+                }
+                Poll::Pending => {
+                    trace!("WebSocket poll_read: pending");
+                    Poll::Pending
+                }
+            }
         }
     }
 
     impl AsyncWrite for WebSocketStream {
         fn poll_write(
-            self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-            _buf: &[u8],
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
         ) -> Poll<io::Result<usize>> {
-            Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, "Not implemented")))
+            // Check if sink is ready
+            match Pin::new(&mut self.write).poll_ready(cx) {
+                Poll::Ready(Ok(())) => {
+                    let msg = Message::Binary(buf.to_vec());
+                    match Pin::new(&mut self.write).start_send(msg) {
+                        Ok(()) => Poll::Ready(Ok(buf.len())),
+                        Err(e) => Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e.to_string()))),
+                    }
+                }
+                Poll::Ready(Err(e)) => {
+                    Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e.to_string())))
+                }
+                Poll::Pending => Poll::Pending,
+            }
         }
 
-        fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-            Poll::Ready(Ok(()))
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            match Pin::new(&mut self.write).poll_flush(cx) {
+                Poll::Ready(Ok(())) => Poll::Ready(Ok(())),
+                Poll::Ready(Err(e)) => {
+                    Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e.to_string())))
+                }
+                Poll::Pending => Poll::Pending,
+            }
         }
 
-        fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-            Poll::Ready(Ok(()))
+        fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            match Pin::new(&mut self.write).poll_close(cx) {
+                Poll::Ready(Ok(())) => Poll::Ready(Ok(())),
+                Poll::Ready(Err(e)) => {
+                    Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e.to_string())))
+                }
+                Poll::Pending => Poll::Pending,
+            }
         }
     }
+    
+    // Native WebSocket is Send + Sync since tokio-tungstenite uses tokio primitives
+    unsafe impl Send for WebSocketStream {}
+    unsafe impl Sync for WebSocketStream {}
 }
 
 #[cfg(target_arch = "wasm32")]

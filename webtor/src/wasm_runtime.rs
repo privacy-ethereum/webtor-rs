@@ -50,7 +50,7 @@ pub struct WasmSleep {
 impl WasmSleep {
     fn new(duration: Duration) -> Self {
         let (tx, rx) = futures::channel::oneshot::channel();
-        let millis = duration.as_millis() as i32;
+        let _millis = duration.as_millis() as i32;
         
         // This requires web-sys with "Window" and "setTimeout"
         // But wait, we are in a library, we might not have access to window global easily if in worker?
