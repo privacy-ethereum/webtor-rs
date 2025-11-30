@@ -43,16 +43,6 @@ base64 = { workspace = true }
 url = { workspace = true }
 http = { workspace = true }
 
-# TLS
-rustls = { workspace = true }
-futures-rustls = { workspace = true }
-tokio-rustls = { workspace = true }
-webpki-roots = { workspace = true }
-rustls-pki-types = { workspace = true }
-
-# Native WebSocket (non-WASM only)
-tokio-tungstenite = { workspace = true }
-
 # Serialization
 serde = { workspace = true }
 serde_json = "1.0"
@@ -74,6 +64,29 @@ kcp = { workspace = true }
 # WASM utilities
 gloo-timers = { workspace = true }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# WASM TLS (SubtleCrypto-based)
+subtle-tls = { path = "../subtle-tls" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Native TLS (non-WASM only) - ring doesn't compile to WASM
+rustls = { workspace = true }
+futures-rustls = { workspace = true }
+webpki-roots = { workspace = true }
+rustls-pki-types = { workspace = true }
+tokio-rustls = { workspace = true }
+
+# Native WebSocket (non-WASM only)
+tokio-tungstenite = { workspace = true }
+
+# Tokio compatibility utilities
+tokio-util = { version = "0.7", features = ["compat"] }
+
 [dev-dependencies]
 tokio-test = "0.4"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+sha2 = "0.10"
+
+[[bench]]
+name = "tor_benchmark"
+harness = false

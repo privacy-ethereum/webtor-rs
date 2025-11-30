@@ -188,7 +188,7 @@ mod native {
     use super::*;
     use futures::stream::{SplitSink, SplitStream};
     use futures::{Sink, Stream};
-    use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream as TungsteniteStream};
+    use tokio_tungstenite::{MaybeTlsStream, WebSocketStream as TungsteniteStream};
     use tokio::net::TcpStream;
     use tokio_tungstenite::tungstenite::Message;
     use tracing::{debug, info, trace};
@@ -204,7 +204,7 @@ mod native {
         pub async fn connect(url: &str) -> Result<Self> {
             info!("Connecting to WebSocket: {}", url);
             
-            let (ws_stream, _response) = connect_async(url)
+            let (ws_stream, _response) = tokio_tungstenite::connect_async(url)
                 .await
                 .map_err(|e| TorError::Network(format!("WebSocket connection failed: {}", e)))?;
             
@@ -301,40 +301,45 @@ mod native {
             cx: &mut Context<'_>,
             buf: &[u8],
         ) -> Poll<io::Result<usize>> {
-            // Check if sink is ready
-            match Pin::new(&mut self.write).poll_ready(cx) {
-                Poll::Ready(Ok(())) => {
-                    let msg = Message::Binary(buf.to_vec());
-                    match Pin::new(&mut self.write).start_send(msg) {
-                        Ok(()) => Poll::Ready(Ok(buf.len())),
-                        Err(e) => Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e.to_string()))),
-                    }
-                }
-                Poll::Ready(Err(e)) => {
-                    Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e.to_string())))
-                }
-                Poll::Pending => Poll::Pending,
-            }
+            use futures::ready;
+            
+            trace!("WebSocket poll_write: writing {} bytes", buf.len());
+            
+            // 1. Wait until the sink is ready to accept a new message.
+            ready!(
+                Pin::new(&mut self.write)
+                    .poll_ready(cx)
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+            );
+
+            // 2. Enqueue our WebSocket frame.
+            let len = buf.len();
+            let msg = Message::Binary(buf.to_vec());
+            Pin::new(&mut self.write)
+                .start_send(msg)
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+
+            // 3. Flush the sink so the frame actually hits the network.
+            ready!(
+                Pin::new(&mut self.write)
+                    .poll_flush(cx)
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+            );
+
+            trace!("WebSocket poll_write: wrote and flushed {} bytes", len);
+            Poll::Ready(Ok(len))
         }
 
         fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-            match Pin::new(&mut self.write).poll_flush(cx) {
-                Poll::Ready(Ok(())) => Poll::Ready(Ok(())),
-                Poll::Ready(Err(e)) => {
-                    Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e.to_string())))
-                }
-                Poll::Pending => Poll::Pending,
-            }
+            Pin::new(&mut self.write)
+                .poll_flush(cx)
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
         }
 
         fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-            match Pin::new(&mut self.write).poll_close(cx) {
-                Poll::Ready(Ok(())) => Poll::Ready(Ok(())),
-                Poll::Ready(Err(e)) => {
-                    Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e.to_string())))
-                }
-                Poll::Pending => Poll::Pending,
-            }
+            Pin::new(&mut self.write)
+                .poll_close(cx)
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
         }
     }
     

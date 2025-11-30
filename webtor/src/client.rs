@@ -385,9 +385,17 @@ impl TorClient {
         rsa_id: RsaIdentity,
     ) -> Result<Arc<tor_proto::channel::Channel>>
     where
-        S: futures::AsyncRead + futures::AsyncWrite + Send + Unpin + tor_rtcompat::StreamOps + 'static,
+        S: futures::AsyncRead + futures::AsyncWrite + Send + Unpin 
+           + tor_rtcompat::StreamOps + tor_rtcompat::CertifiedConn + 'static,
     {
         let runtime = WasmRuntime::new();
+        
+        // Extract the peer certificate from the TLS stream BEFORE moving it
+        // The peer certificate is needed later for the check() call
+        let peer_cert = stream.peer_certificate()
+            .map_err(|e| TorError::Network(format!("Failed to get peer certificate: {}", e)))?
+            .ok_or_else(|| TorError::Network("No peer certificate from TLS".to_string()))?;
+        debug!("Got peer certificate: {} bytes", peer_cert.len());
         
         // Create a no-op memory quota for now
         let mq = MemoryQuotaTracker::new_noop();
@@ -397,10 +405,16 @@ impl TorClient {
              .map_err(|e| TorError::Internal(format!("Failed to create channel account: {}", e)))?;
 
         let builder = ChannelBuilder::new();
+        debug!("Launching Tor channel client handshake...");
         let handshake = builder.launch_client(stream, runtime, chan_account);
         
+        debug!("Starting handshake connect...");
         let unverified = handshake.connect(|| SystemTime::now()).await
-            .map_err(|e| TorError::Network(format!("Handshake connect failed: {}", e)))?;
+            .map_err(|e| {
+                error!("Handshake connect error details: {:?}", e);
+                TorError::Network(format!("Handshake connect failed: {}", e))
+            })?;
+        debug!("Handshake connect completed, verifying...");
             
         // Construct peer target
         let mut peer_builder = OwnedChanTargetBuilder::default();
@@ -409,7 +423,9 @@ impl TorClient {
         let peer = peer_builder.build()
             .map_err(|e| TorError::Internal(format!("Failed to build peer target: {}", e)))?;
 
-        let (chan, reactor) = unverified.check(&peer, &[], None)
+        // Pass the peer certificate to check() - this verifies that the CERTS cells
+        // properly authenticate the TLS certificate we received
+        let (chan, reactor) = unverified.check(&peer, &peer_cert, None)
             .map_err(|e| TorError::Network(format!("Handshake check failed: {}", e)))?
             .finish()
             .await
