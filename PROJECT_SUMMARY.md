@@ -164,10 +164,21 @@ webtor-rs/
 - [ ] Parallel consensus fetching
 
 ### Phase 6 - Advanced Features
+- [ ] TLS 1.2 support (for sites like httpbin.org)
 - [ ] Stream isolation per domain
 - [ ] Advanced relay selection (bandwidth weights)
 - [ ] Circuit preemptive rotation
 - [ ] Onion service (.onion) support
+
+## ⚠️ Known Limitations
+
+### TLS 1.3 Only
+The WASM TLS implementation (`subtle-tls`) only supports TLS 1.3. Sites that only support TLS 1.2 (like httpbin.org) will fail with `close_notify` alert.
+
+**Working sites** (TLS 1.3): example.com, google.com, cloudflare.com, github.com
+**Non-working sites** (TLS 1.2 only): httpbin.org
+
+Adding TLS 1.2 support requires implementing different key exchange and cipher suites.
 
 ### Phase 7 - Production Readiness
 - [ ] Security audit
@@ -183,7 +194,7 @@ webtor-rs/
 | Core Library | ✅ Complete | Full Tor protocol support |
 | WebTunnel | ✅ Complete | Works on WASM + Native |
 | Snowflake | ✅ Complete | WASM only (WebRTC) |
-| TLS/HTTPS | ✅ Complete | rustls with cert validation |
+| TLS/HTTPS | ✅ Complete | TLS 1.3 only (via SubtleCrypto) |
 | Consensus | ✅ Complete | 1-hour caching |
 | Circuit Creation | ✅ Complete | 3-hop circuits |
 | HTTP Client | ✅ Complete | GET/POST support |

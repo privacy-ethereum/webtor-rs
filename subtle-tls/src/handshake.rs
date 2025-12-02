@@ -224,19 +224,22 @@ impl HandshakeState {
     }
 
     fn build_alpn_extension(&self) -> Vec<u8> {
-        // ALPN protocol list for HTTP/1.1
+        // ALPN protocol list - advertise both h2 and http/1.1
+        // Some servers (like httpbin.org) require seeing h2 in the list
         // Format: length(2) + [ length(1) + protocol_name ]*
-        let protocol = b"http/1.1";
+        let protocols: &[&[u8]] = &[b"h2", b"http/1.1"];
         let mut ext = Vec::new();
 
-        // Protocol list length (1 byte for protocol length + protocol bytes)
-        let list_len = 1 + protocol.len();
+        // Calculate total list length
+        let list_len: usize = protocols.iter().map(|p| 1 + p.len()).sum();
         ext.push((list_len >> 8) as u8);
         ext.push(list_len as u8);
 
-        // Protocol entry
-        ext.push(protocol.len() as u8);
-        ext.extend_from_slice(protocol);
+        // Add each protocol entry
+        for protocol in protocols {
+            ext.push(protocol.len() as u8);
+            ext.extend_from_slice(protocol);
+        }
 
         ext
     }
