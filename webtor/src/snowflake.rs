@@ -34,6 +34,9 @@ use tracing::info;
 #[cfg(target_arch = "wasm32")]
 use crate::webrtc_stream::WebRtcStream;
 
+#[cfg(target_arch = "wasm32")]
+use subtle_tls::{TlsConnector, TlsStream, TlsConfig};
+
 /// Snowflake bridge configuration
 #[derive(Debug, Clone)]
 pub struct SnowflakeConfig {
@@ -147,11 +150,26 @@ impl SnowflakeBridge {
         let mut smux = SmuxStream::with_stream_id(kcp, stream_id);
         smux.initialize().await?;
         info!("SMUX layer initialized");
+        
+        // 5. Wrap with TLS for Tor link encryption
+        // Tor relays use self-signed certificates, so skip verification
+        // (authentication happens via CERTS cells in the Tor protocol)
+        info!("Establishing TLS over SMUX...");
+        let tls_config = TlsConfig {
+            skip_verification: true, // Tor uses self-signed certs, validated via CERTS cells
+            alpn_protocols: vec![],
+        };
+        let connector = TlsConnector::with_config(tls_config);
+        // Use a placeholder server name since Tor doesn't use SNI
+        let tls_stream = connector.connect(smux, "www.example.com")
+            .await
+            .map_err(|e| crate::error::TorError::tls(format!("TLS handshake failed: {}", e)))?;
+        info!("TLS layer established over SMUX");
 
-        info!("Snowflake connection established: WebRTC → Turbo → KCP → SMUX");
+        info!("Snowflake connection established: WebRTC → Turbo → KCP → SMUX → TLS");
 
         Ok(SnowflakeStream {
-            inner: SnowflakeInner::WebRtc(smux),
+            inner: SnowflakeInner::WebRtc(tls_stream),
         })
     }
 
@@ -175,10 +193,13 @@ impl Default for SnowflakeBridge {
     }
 }
 
-/// Inner stream type (WebRTC on WASM)
+/// Inner stream type (WebRTC on WASM, wrapped with TLS)
+#[cfg(target_arch = "wasm32")]
+type SnowflakeSmuxStack = SmuxStream<KcpStream<TurboStream<WebRtcStream>>>;
+
 #[cfg(target_arch = "wasm32")]
 enum SnowflakeInner {
-    WebRtc(SmuxStream<KcpStream<TurboStream<WebRtcStream>>>),
+    WebRtc(TlsStream<SnowflakeSmuxStack>),
 }
 
 /// Native stub - Snowflake not supported on native (use WebTunnel instead)
@@ -201,13 +222,48 @@ impl tor_rtcompat::StreamOps for SnowflakeStream {
     // Use default implementation
 }
 
+impl tor_rtcompat::CertifiedConn for SnowflakeStream {
+    fn peer_certificate(&self) -> io::Result<Option<Vec<u8>>> {
+        match &self.inner {
+            #[cfg(target_arch = "wasm32")]
+            SnowflakeInner::WebRtc(tls) => {
+                // TlsStream::peer_certificate returns Option<&[u8]>
+                // CertifiedConn trait expects io::Result<Option<Vec<u8>>>
+                Ok(tls.peer_certificate().map(|cert| cert.to_vec()))
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            SnowflakeInner::Placeholder => unreachable!("Snowflake not available on native"),
+        }
+    }
+    
+    fn export_keying_material(
+        &self,
+        len: usize,
+        _label: &[u8],
+        _context: Option<&[u8]>,
+    ) -> io::Result<Vec<u8>> {
+        match &self.inner {
+            #[cfg(target_arch = "wasm32")]
+            SnowflakeInner::WebRtc(_tls) => {
+                // TLS 1.3 keying material export is complex
+                // For now, return zeros as a placeholder
+                // TODO: Implement proper RFC 5705 key export
+                tracing::warn!("export_keying_material called but not fully implemented");
+                Ok(vec![0u8; len])
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            SnowflakeInner::Placeholder => unreachable!("Snowflake not available on native"),
+        }
+    }
+}
+
 impl SnowflakeStream {
     /// Close the Snowflake stream
     pub async fn close(&mut self) -> io::Result<()> {
         info!("Closing Snowflake stream");
         match &mut self.inner {
             #[cfg(target_arch = "wasm32")]
-            SnowflakeInner::WebRtc(smux) => smux.close().await.map_err(|e| {
+            SnowflakeInner::WebRtc(tls) => tls.close().await.map_err(|e| {
                 io::Error::new(io::ErrorKind::Other, e.to_string())
             }),
             #[cfg(not(target_arch = "wasm32"))]
@@ -224,7 +280,7 @@ impl AsyncRead for SnowflakeStream {
     ) -> Poll<io::Result<usize>> {
         match &mut self.inner {
             #[cfg(target_arch = "wasm32")]
-            SnowflakeInner::WebRtc(smux) => Pin::new(smux).poll_read(_cx, _buf),
+            SnowflakeInner::WebRtc(tls) => Pin::new(tls).poll_read(_cx, _buf),
             #[cfg(not(target_arch = "wasm32"))]
             SnowflakeInner::Placeholder => unreachable!("Snowflake not available on native"),
         }
@@ -239,7 +295,7 @@ impl AsyncWrite for SnowflakeStream {
     ) -> Poll<io::Result<usize>> {
         match &mut self.inner {
             #[cfg(target_arch = "wasm32")]
-            SnowflakeInner::WebRtc(smux) => Pin::new(smux).poll_write(_cx, _buf),
+            SnowflakeInner::WebRtc(tls) => Pin::new(tls).poll_write(_cx, _buf),
             #[cfg(not(target_arch = "wasm32"))]
             SnowflakeInner::Placeholder => unreachable!("Snowflake not available on native"),
         }
@@ -248,7 +304,7 @@ impl AsyncWrite for SnowflakeStream {
     fn poll_flush(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match &mut self.inner {
             #[cfg(target_arch = "wasm32")]
-            SnowflakeInner::WebRtc(smux) => Pin::new(smux).poll_flush(_cx),
+            SnowflakeInner::WebRtc(tls) => Pin::new(tls).poll_flush(_cx),
             #[cfg(not(target_arch = "wasm32"))]
             SnowflakeInner::Placeholder => unreachable!("Snowflake not available on native"),
         }
@@ -257,7 +313,7 @@ impl AsyncWrite for SnowflakeStream {
     fn poll_close(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match &mut self.inner {
             #[cfg(target_arch = "wasm32")]
-            SnowflakeInner::WebRtc(smux) => Pin::new(smux).poll_close(_cx),
+            SnowflakeInner::WebRtc(tls) => Pin::new(tls).poll_close(_cx),
             #[cfg(not(target_arch = "wasm32"))]
             SnowflakeInner::Placeholder => unreachable!("Snowflake not available on native"),
         }

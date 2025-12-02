@@ -82,6 +82,7 @@ use tor_error::warn_report;
 // for legitimate traffic, and illegitimate traffic would be better handled by the kernel with
 // something like SYN cookies. But it's easier for users to reduce the max using
 // `/proc/sys/net/core/somaxconn` than to increase this max by recompiling arti.
+#[cfg(not(target_arch = "wasm32"))]
 const LISTEN_BACKLOG: i32 = u16::MAX as i32;
 
 /// Open a listening TCP socket.
@@ -94,6 +95,7 @@ const LISTEN_BACKLOG: i32 = u16::MAX as i32;
 /// socket with the options we need and with consistent behaviour across all runtimes. For example
 /// if each runtime were using a different `listen()` backlog size, it might be difficult to debug
 /// related issues.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn tcp_listen(addr: &std::net::SocketAddr) -> std::io::Result<std::net::TcpListener> {
     use socket2::{Domain, Socket, Type};
 
@@ -154,6 +156,15 @@ pub(crate) fn tcp_listen(addr: &std::net::SocketAddr) -> std::io::Result<std::ne
     socket.listen(LISTEN_BACKLOG)?;
 
     Ok(socket.into())
+}
+
+/// WASM stub - TCP listening is not supported in WASM.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn tcp_listen(_addr: &std::net::SocketAddr) -> std::io::Result<std::net::TcpListener> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "TCP listening is not supported in WASM",
+    ))
 }
 
 /// Helper: Implement an unreachable NetProvider<unix::SocketAddr> for a given runtime.

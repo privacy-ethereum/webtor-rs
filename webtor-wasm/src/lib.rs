@@ -2,13 +2,58 @@
 
 mod websocket;
 
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
+use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::future_to_promise;
 use webtor::{TorClient as NativeTorClient, TorClientOptions as NativeTorClientOptions};
 use gloo_console::{log as console_log, error as console_error, warn as console_warn};
+
+// Thread-local log callback for forwarding logs to JavaScript (WASM is single-threaded)
+thread_local! {
+    static LOG_CALLBACK: RefCell<Option<js_sys::Function>> = RefCell::new(None);
+    static DEBUG_ENABLED: RefCell<bool> = RefCell::new(false);
+}
+
+/// Set the log callback function for receiving tracing logs in JavaScript
+#[wasm_bindgen(js_name = setLogCallback)]
+pub fn set_log_callback(callback: js_sys::Function) {
+    LOG_CALLBACK.with(|cb| {
+        *cb.borrow_mut() = Some(callback);
+    });
+}
+
+/// Enable or disable debug-level logging
+#[wasm_bindgen(js_name = setDebugEnabled)]
+pub fn set_debug_enabled(enabled: bool) {
+    DEBUG_ENABLED.with(|debug| {
+        *debug.borrow_mut() = enabled;
+    });
+    console_log!(format!("Debug logging {}", if enabled { "enabled" } else { "disabled" }));
+}
+
+/// Internal function to forward a log message to JS
+fn forward_log(level: &str, target: &str, message: &str) {
+    // Check if we should log based on level
+    let is_debug = level == "DEBUG" || level == "TRACE";
+    if is_debug {
+        let debug_enabled = DEBUG_ENABLED.with(|debug| *debug.borrow());
+        if !debug_enabled {
+            return;
+        }
+    }
+    
+    LOG_CALLBACK.with(|cb| {
+        if let Some(ref callback) = *cb.borrow() {
+            let this = JsValue::NULL;
+            let level_js = JsValue::from_str(level);
+            let target_js = JsValue::from_str(target);
+            let message_js = JsValue::from_str(message);
+            let _ = callback.call3(&this, &level_js, &target_js, &message_js);
+        }
+    });
+}
 
 /// JavaScript-friendly options for TorClient
 #[wasm_bindgen]
@@ -19,12 +64,23 @@ pub struct TorClientOptions {
 
 #[wasm_bindgen]
 impl TorClientOptions {
+    /// Create options for Snowflake bridge (default)
     #[wasm_bindgen(constructor)]
     pub fn new(snowflake_url: String) -> Self {
         console_log!(format!("Creating TorClientOptions with snowflake URL: {}", snowflake_url));
         
         Self {
             inner: NativeTorClientOptions::new(snowflake_url),
+        }
+    }
+    
+    /// Create options for WebTunnel bridge
+    #[wasm_bindgen(js_name = webtunnel)]
+    pub fn webtunnel(url: String, fingerprint: String) -> Self {
+        console_log!(format!("Creating TorClientOptions with WebTunnel URL: {}", url));
+        
+        Self {
+            inner: NativeTorClientOptions::webtunnel(url, fingerprint),
         }
     }
     
@@ -56,6 +112,12 @@ impl TorClientOptions {
     #[wasm_bindgen(js_name = withCircuitUpdateAdvance)]
     pub fn with_circuit_update_advance(mut self, advance: u32) -> Self {
         self.inner = self.inner.with_circuit_update_advance(advance as u64);
+        self
+    }
+    
+    #[wasm_bindgen(js_name = withBridgeFingerprint)]
+    pub fn with_bridge_fingerprint(mut self, fingerprint: String) -> Self {
+        self.inner = self.inner.with_bridge_fingerprint(fingerprint);
         self
     }
 }
@@ -454,14 +516,72 @@ impl JsCircuitStatus {
     }
 }
 
+/// Custom tracing layer that forwards logs to JavaScript
+struct JsLogLayer;
+
+impl<S> tracing_subscriber::Layer<S> for JsLogLayer
+where
+    S: tracing::Subscriber,
+{
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let metadata = event.metadata();
+        let level = metadata.level().as_str();
+        let target = metadata.target();
+        
+        // Extract the message from the event
+        let mut visitor = MessageVisitor(String::new());
+        event.record(&mut visitor);
+        let message = visitor.0;
+        
+        forward_log(level, target, &message);
+    }
+}
+
+struct MessageVisitor(String);
+
+impl tracing::field::Visit for MessageVisitor {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            self.0 = format!("{:?}", value);
+        } else if !self.0.is_empty() {
+            self.0.push_str(&format!(" {}={:?}", field.name(), value));
+        } else {
+            self.0 = format!("{}={:?}", field.name(), value);
+        }
+    }
+    
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        if field.name() == "message" {
+            self.0 = value.to_string();
+        } else if !self.0.is_empty() {
+            self.0.push_str(&format!(" {}={}", field.name(), value));
+        } else {
+            self.0 = format!("{}={}", field.name(), value);
+        }
+    }
+}
+
 /// Initialize the WASM module
 #[wasm_bindgen]
 pub fn init() {
     // Set up panic handler
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
     
-    // Set up tracing
-    tracing_wasm::set_as_global_default();
+    // Set up tracing with our custom layer that forwards to JS
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    
+    let wasm_layer = tracing_wasm::WASMLayer::new(tracing_wasm::WASMLayerConfig::default());
+    let js_layer = JsLogLayer;
+    
+    tracing_subscriber::registry()
+        .with(wasm_layer)
+        .with(js_layer)
+        .init();
     
     console_log!("Webtor WASM module initialized");
 }

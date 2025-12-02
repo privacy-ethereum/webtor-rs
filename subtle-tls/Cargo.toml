@@ -1,0 +1,53 @@
+[package]
+name = "subtle-tls"
+version = "0.1.0"
+edition = "2021"
+authors = ["Webtor Contributors"]
+license = "MIT"
+description = "TLS 1.3 implementation using browser SubtleCrypto API for WASM"
+repository = "https://github.com/voltrevo/webtor-rs"
+
+[dependencies]
+# Async runtime
+futures = "0.3"
+thiserror = "1.0"
+tracing = "0.1"
+
+# WASM bindings
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3.69", features = [
+    "Crypto",
+    "SubtleCrypto",
+    "CryptoKey",
+    "CryptoKeyPair",
+    "AesGcmParams",
+    "EcKeyGenParams",
+    "EcKeyImportParams",
+    "EcdhKeyDeriveParams",
+    "HkdfParams",
+    "Algorithm",
+    "Window",
+] }
+
+# For certificate parsing
+x509-parser = { version = "0.16", default-features = false }
+
+# Random number generation
+getrandom = { version = "0.2", features = ["js"] }
+
+# Pure Rust crypto (for ChaCha20-Poly1305 - SubtleCrypto doesn't support it)
+chacha20poly1305 = "0.10"
+
+# X25519 key exchange (pure Rust)
+x25519-dalek = { version = "2.0", features = ["static_secrets"] }
+
+# Random number generation for x25519
+rand = "0.8"
+
+# Tor runtime compatibility traits
+tor-rtcompat = { version = "0.36.0", default-features = false }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"

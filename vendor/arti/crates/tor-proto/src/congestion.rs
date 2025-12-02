@@ -323,7 +323,7 @@ impl CongestionControl {
         // closing the circuit.
         self.sendme_validator.validate(Some(tag))?;
 
-        let now = runtime.now();
+        let now = crate::util::wasm_time::Instant::now();
         // Update our RTT estimate if the algorithm yields back a congestion window. RTT
         // measurements only make sense for a congestion window. For example, FixedWindow here
         // doesn't use it and so no need for the RTT.
@@ -370,7 +370,7 @@ impl CongestionControl {
             self.sendme_validator.record(tag);
             // Only keep the SENDME timestamp if the algorithm has a congestion window.
             if self.algorithm.cwnd().is_some() {
-                self.rtt.expect_sendme(runtime.now());
+                self.rtt.expect_sendme(crate::util::wasm_time::Instant::now());
             }
         }
 

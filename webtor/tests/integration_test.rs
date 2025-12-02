@@ -232,3 +232,123 @@ async fn test_consensus_fetch() {
     let status = client.get_consensus_status().await;
     println!("Consensus status: {}", status);
 }
+
+/// Timing analysis: Full flow with consensus diff support
+/// 
+/// This test performs a complete timing breakdown of:
+/// 1. First run: Full consensus fetch + circuit creation + HTTP request
+/// 2. Second run: Diff-based consensus update + circuit creation + HTTP request
+#[tokio::test]
+async fn test_timing_analysis_with_diff() {
+    if !should_run_integration_tests() {
+        println!("Skipping timing analysis (set WEBTUNNEL_URL and WEBTUNNEL_FINGERPRINT to run)");
+        return;
+    }
+    
+    init_logging();
+    
+    let (url, fingerprint) = match get_webtunnel_config() {
+        Some(config) => config,
+        None => {
+            println!("WebTunnel config not found, skipping test");
+            return;
+        }
+    };
+    
+    use webtor::{TorClient, TorClientOptions};
+    
+    println!("\n============================================================");
+    println!("TIMING ANALYSIS: Full Flow with Consensus Diff");
+    println!("============================================================\n");
+    
+    // =========== FIRST RUN: Full consensus fetch ===========
+    println!("--- FIRST RUN: Full Consensus Fetch ---\n");
+    
+    let total_start = Instant::now();
+    
+    // Phase 1: Client creation (no early circuit)
+    let phase1_start = Instant::now();
+    let options = TorClientOptions::webtunnel(url.clone(), fingerprint.clone())
+        .with_create_circuit_early(false)
+        .with_connection_timeout(60_000)
+        .with_circuit_timeout(180_000);
+    
+    let client = TorClient::new(options).await
+        .expect("Failed to create TorClient");
+    let phase1_time = phase1_start.elapsed();
+    println!("  Client creation:     {:>8.2?}", phase1_time);
+    
+    // Phase 2: Consensus fetch (full)
+    let phase2_start = Instant::now();
+    let relay_count = client.refresh_consensus().await
+        .expect("Failed to fetch consensus");
+    let phase2_time = phase2_start.elapsed();
+    println!("  Consensus fetch:     {:>8.2?} ({} relays)", phase2_time, relay_count);
+    
+    // Phase 3: WebTunnel + Channel
+    let phase3_start = Instant::now();
+    client.ensure_ready().await.expect("Failed to ensure ready");
+    let phase3_time = phase3_start.elapsed();
+    println!("  WebTunnel+Channel:   {:>8.2?}", phase3_time);
+    
+    // Phase 4: HTTP request through Tor
+    let phase4_start = Instant::now();
+    let response = client.fetch("https://api64.ipify.org?format=json").await
+        .expect("Failed to fetch");
+    let phase4_time = phase4_start.elapsed();
+    
+    let body = String::from_utf8_lossy(&response.body);
+    let ip: serde_json::Value = serde_json::from_str(&body).unwrap();
+    println!("  HTTP fetch:          {:>8.2?}", phase4_time);
+    println!("  Exit IP: {}", ip["ip"]);
+    
+    let first_run_total = total_start.elapsed();
+    println!("\n  FIRST RUN TOTAL:     {:>8.2?}", first_run_total);
+    
+    // Keep client alive for second run
+    let consensus_status = client.get_consensus_status().await;
+    println!("\n  Consensus status: {}", consensus_status);
+    
+    // =========== SECOND RUN: Diff-based update ===========
+    println!("\n--- SECOND RUN: Consensus Diff (simulated refresh) ---\n");
+    
+    let second_start = Instant::now();
+    
+    // Phase 5: Consensus refresh (should try diff first)
+    let phase5_start = Instant::now();
+    let relay_count2 = client.refresh_consensus().await
+        .expect("Failed to refresh consensus");
+    let phase5_time = phase5_start.elapsed();
+    println!("  Consensus refresh:   {:>8.2?} ({} relays)", phase5_time, relay_count2);
+    
+    // Phase 6: Another HTTP request (reusing existing circuit)
+    let phase6_start = Instant::now();
+    let response2 = client.fetch("https://api64.ipify.org?format=json").await
+        .expect("Failed to fetch");
+    let phase6_time = phase6_start.elapsed();
+    
+    let body2 = String::from_utf8_lossy(&response2.body);
+    let ip2: serde_json::Value = serde_json::from_str(&body2).unwrap();
+    println!("  HTTP fetch (reuse):  {:>8.2?}", phase6_time);
+    println!("  Exit IP: {}", ip2["ip"]);
+    
+    let second_run_total = second_start.elapsed();
+    println!("\n  SECOND RUN TOTAL:    {:>8.2?}", second_run_total);
+    
+    // =========== Summary ===========
+    println!("\n============================================================");
+    println!("TIMING SUMMARY");
+    println!("============================================================");
+    println!("First run (full consensus):  {:>8.2?}", first_run_total);
+    println!("Second run (diff/refresh):   {:>8.2?}", second_run_total);
+    println!("Time saved:                  {:>8.2?}", first_run_total.saturating_sub(second_run_total));
+    
+    if phase5_time < phase2_time {
+        let savings = ((phase2_time.as_millis() - phase5_time.as_millis()) as f64 
+                       / phase2_time.as_millis() as f64) * 100.0;
+        println!("Consensus fetch speedup:     {:.1}%", savings);
+    }
+    println!("============================================================\n");
+    
+    client.close().await;
+}

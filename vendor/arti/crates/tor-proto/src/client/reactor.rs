@@ -1082,7 +1082,7 @@ impl Reactor {
                 // which are twice as long (otherwise we risk expiring
                 // the rend half-streams too soon).
                 let timeout = std::cmp::max(max_rtt, 2 * leg.estimate_cbt(circ_len));
-                let expire_at = self.runtime.now() + timeout;
+                let expire_at = crate::util::wasm_time::Instant::now() + timeout;
 
                 let res: Result<()> = leg
                     .close_stream(hop_num, sid, behav, reason, expire_at)

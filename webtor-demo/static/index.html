@@ -310,9 +310,15 @@
     
     <div class="container">
         <div class="section">
-            <h3>📋 Activity Log</h3>
+            <h3>📋 Connection Logs</h3>
             <p>Detailed logging of all Tor operations and requests.</p>
-            <textarea id="output" class="log-output" readonly placeholder="Activity log will appear here..."></textarea>
+            <div style="margin-bottom: 10px;">
+                <label style="display: inline-flex; align-items: center; cursor: pointer;">
+                    <input type="checkbox" id="debugToggle" style="margin-right: 8px; cursor: pointer;">
+                    <span>🔧 Show Debug Logs</span>
+                </label>
+            </div>
+            <textarea id="output" class="log-output" readonly placeholder="Connection logs will appear here..."></textarea>
         </div>
     </div>
     
@@ -341,7 +347,51 @@
     </div>
     
     <script type="module">
-        import init, { DemoApp } from './pkg/webtor_demo.js';
+        import init, { DemoApp, setLogCallback, setDebugEnabled } from './pkg/webtor_demo.js';
+        
+        // Format log entry for the UI
+        function formatLogEntry(level, target, message) {
+            const timestamp = new Date().toLocaleTimeString('en-US');
+            let prefix = 'ℹ️';
+            let color = '';
+            
+            switch (level) {
+                case 'ERROR':
+                    prefix = '❌';
+                    color = 'color: #dc3545;';
+                    break;
+                case 'WARN':
+                    prefix = '⚠️';
+                    color = 'color: #ffc107;';
+                    break;
+                case 'INFO':
+                    prefix = '✅';
+                    color = 'color: #28a745;';
+                    break;
+                case 'DEBUG':
+                    prefix = '🔧';
+                    color = 'color: #6c757d;';
+                    break;
+                case 'TRACE':
+                    prefix = '🔍';
+                    color = 'color: #adb5bd;';
+                    break;
+            }
+            
+            // Shorten target for display
+            const shortTarget = target.split('::').pop() || target;
+            return `[${timestamp}] ${prefix} [${shortTarget}] ${message}\n`;
+        }
+        
+        // Log callback that forwards tracing logs to the UI
+        function logCallback(level, target, message) {
+            const output = document.getElementById('output');
+            if (output) {
+                const entry = formatLogEntry(level, target, message);
+                output.value += entry;
+                output.scrollTop = output.scrollHeight;
+            }
+        }
         
         async function run() {
             console.log('Loading Webtor Demo...');
@@ -350,6 +400,23 @@
                 // Initialize the WASM module
                 await init();
                 console.log('WASM module loaded successfully');
+                
+                // Set up log callback to forward tracing logs to UI
+                setLogCallback(logCallback);
+                
+                // Set up debug toggle
+                const debugToggle = document.getElementById('debugToggle');
+                if (debugToggle) {
+                    debugToggle.addEventListener('change', (e) => {
+                        setDebugEnabled(e.target.checked);
+                        const output = document.getElementById('output');
+                        if (output) {
+                            const timestamp = new Date().toLocaleTimeString('en-US');
+                            output.value += `[${timestamp}] ℹ️ Debug logging ${e.target.checked ? 'enabled' : 'disabled'}\n`;
+                            output.scrollTop = output.scrollHeight;
+                        }
+                    });
+                }
                 
                 // Create and initialize the demo app
                 const app = new DemoApp();

@@ -282,6 +282,7 @@ impl<S: AsyncRead + Unpin> AsyncRead for TurboStream<S> {
         match Pin::new(&mut self.inner).poll_read(cx, &mut temp) {
             Poll::Ready(Ok(0)) => Poll::Ready(Ok(0)), // EOF
             Poll::Ready(Ok(n)) => {
+                tracing::info!("Turbo poll_read: got {} bytes from inner stream", n);
                 self.read_buffer.extend_from_slice(&temp[..n]);
                 // Wake to try decoding again
                 cx.waker().wake_by_ref();
@@ -302,8 +303,8 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for TurboStream<S> {
         // Encode as a Turbo frame
         let frame = TurboFrame::new(buf.to_vec());
         let encoded = frame.encode();
-        debug!("Turbo poll_write: {} bytes data -> {} byte frame, header: {:02x?}", 
-               buf.len(), encoded.len(), &encoded[..std::cmp::min(3, encoded.len())]);
+        tracing::info!("Turbo poll_write: {} bytes data -> {} byte frame", 
+               buf.len(), encoded.len());
 
         // Write all encoded data
         match Pin::new(&mut self.inner).poll_write(cx, &encoded) {

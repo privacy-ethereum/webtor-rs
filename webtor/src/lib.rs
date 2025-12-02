@@ -14,11 +14,15 @@ pub mod kcp_stream;
 pub mod relay;
 pub mod smux;
 pub mod snowflake;
+pub mod snowflake_ws;
+pub mod time;
 pub mod snowflake_broker;
 pub mod tls;
 pub mod turbo;
 pub mod wasm_runtime;
 pub mod websocket;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub mod webtunnel;
 
 #[cfg(target_arch = "wasm32")]

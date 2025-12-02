@@ -69,7 +69,8 @@ use std::borrow::Borrow;
 use std::pin::Pin;
 use std::result::Result as StdResult;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
+use crate::util::wasm_time::Instant;
 
 use create::{Create2Wrap, CreateFastWrap, CreateHandshakeWrap};
 use extender::HandshakeAuxDataHandler;
@@ -717,7 +718,7 @@ impl Circuit {
         streamid: StreamId,
         msg: UnparsedRelayMsg,
     ) -> Result<Option<CircuitCmd>> {
-        let now = self.runtime.now();
+        let now = crate::util::wasm_time::Instant::now();
 
         #[cfg(feature = "conflux")]
         if let Some(conflux) = self.conflux_handler.as_mut() {

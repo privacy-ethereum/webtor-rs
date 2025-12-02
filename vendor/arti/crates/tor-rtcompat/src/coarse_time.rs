@@ -48,6 +48,128 @@ use paste::paste;
 
 use crate::traits::CoarseTimeProvider;
 
+// ===== WASM-compatible internal time types =====
+// For WASM, we use our own Duration/Instant wrappers that use Performance.now()
+// For native, we use coarsetime
+
+#[cfg(not(target_arch = "wasm32"))]
+mod inner {
+    pub use coarsetime::{Duration, Instant};
+}
+
+#[cfg(target_arch = "wasm32")]
+mod inner {
+    use std::ops::{Add, AddAssign, Sub, SubAssign};
+
+    /// WASM-compatible duration in milliseconds
+    #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
+    pub struct Duration(pub(super) u64);
+
+    impl Duration {
+        /// Create a new duration from milliseconds
+        pub fn from_millis(ms: u64) -> Self {
+            Duration(ms)
+        }
+
+        /// Get the duration as milliseconds
+        pub fn as_millis(&self) -> u64 {
+            self.0
+        }
+    }
+
+    impl From<std::time::Duration> for Duration {
+        fn from(d: std::time::Duration) -> Self {
+            Duration(d.as_millis() as u64)
+        }
+    }
+
+    impl From<Duration> for std::time::Duration {
+        fn from(d: Duration) -> std::time::Duration {
+            std::time::Duration::from_millis(d.0)
+        }
+    }
+
+    impl Add for Duration {
+        type Output = Duration;
+        fn add(self, rhs: Duration) -> Duration {
+            Duration(self.0.saturating_add(rhs.0))
+        }
+    }
+
+    impl AddAssign for Duration {
+        fn add_assign(&mut self, rhs: Duration) {
+            self.0 = self.0.saturating_add(rhs.0);
+        }
+    }
+
+    impl Sub for Duration {
+        type Output = Duration;
+        fn sub(self, rhs: Duration) -> Duration {
+            Duration(self.0.saturating_sub(rhs.0))
+        }
+    }
+
+    impl SubAssign for Duration {
+        fn sub_assign(&mut self, rhs: Duration) {
+            self.0 = self.0.saturating_sub(rhs.0);
+        }
+    }
+
+    /// WASM-compatible instant using Performance.now()
+    #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
+    pub struct Instant(u64);
+
+    impl Instant {
+        /// Get the current time
+        pub fn now() -> Self {
+            let perf = web_sys::window()
+                .expect("no window")
+                .performance()
+                .expect("no performance");
+            let ms = perf.now() as u64;
+            Instant(ms)
+        }
+
+        /// Get time as milliseconds since some epoch
+        pub fn as_millis(&self) -> u64 {
+            self.0
+        }
+    }
+
+    impl Add<Duration> for Instant {
+        type Output = Instant;
+        fn add(self, rhs: Duration) -> Instant {
+            Instant(self.0.saturating_add(rhs.0))
+        }
+    }
+
+    impl AddAssign<Duration> for Instant {
+        fn add_assign(&mut self, rhs: Duration) {
+            self.0 = self.0.saturating_add(rhs.0);
+        }
+    }
+
+    impl Sub<Duration> for Instant {
+        type Output = Instant;
+        fn sub(self, rhs: Duration) -> Instant {
+            Instant(self.0.saturating_sub(rhs.0))
+        }
+    }
+
+    impl SubAssign<Duration> for Instant {
+        fn sub_assign(&mut self, rhs: Duration) {
+            self.0 = self.0.saturating_sub(rhs.0);
+        }
+    }
+
+    impl Sub<Instant> for Instant {
+        type Output = Duration;
+        fn sub(self, rhs: Instant) -> Duration {
+            Duration(self.0.saturating_sub(rhs.0))
+        }
+    }
+}
+
 /// A duration with reduced precision, and, in the future, saturating arithmetic
 ///
 /// This type represents a (nonnegative) period
@@ -73,7 +195,7 @@ use crate::traits::CoarseTimeProvider;
 // methods like `from_secs`, `as_secs` etc.
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)] //
 #[derive(Add, Sub, AddAssign, SubAssign)]
-pub struct CoarseDuration(coarsetime::Duration);
+pub struct CoarseDuration(inner::Duration);
 
 /// A monotonic timestamp with reduced precision, and, in the future, saturating arithmetic
 ///
@@ -110,7 +232,7 @@ pub struct CoarseDuration(coarsetime::Duration);
 /// We regard this as a bug.
 /// The intent is that all operations will saturate.
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)] //
-pub struct CoarseInstant(coarsetime::Instant);
+pub struct CoarseInstant(inner::Instant);
 
 impl From<time::Duration> for CoarseDuration {
     fn from(td: time::Duration) -> CoarseDuration {
@@ -158,7 +280,7 @@ impl RealCoarseTimeProvider {
 
 impl CoarseTimeProvider for RealCoarseTimeProvider {
     fn now_coarse(&self) -> CoarseInstant {
-        CoarseInstant(coarsetime::Instant::now())
+        CoarseInstant(inner::Instant::now())
     }
 }
 

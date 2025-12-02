@@ -54,7 +54,7 @@ where
     async fn send_versions_cell<F>(
         &mut self,
         now_fn: F,
-    ) -> Result<(coarsetime::Instant, SystemTime)>
+    ) -> Result<(crate::util::wasm_time::Instant, SystemTime)>
     where
         F: FnOnce() -> SystemTime,
     {
@@ -68,7 +68,7 @@ where
         );
         self.framed_tls().send(version_cell).await?;
         Ok((
-            coarsetime::Instant::now(), // Flushed at instant
+            crate::util::wasm_time::Instant::now(), // Flushed at instant
             now_fn(),                   // Flushed at wallclock
         ))
     }
@@ -136,11 +136,11 @@ where
     ) -> Result<(
         Option<msg::AuthChallenge>,
         msg::Certs,
-        (msg::Netinfo, coarsetime::Instant),
+        (msg::Netinfo, crate::util::wasm_time::Instant),
     )> {
         let mut auth_challenge_cell: Option<msg::AuthChallenge> = None;
         let mut certs_cell: Option<msg::Certs> = None;
-        let mut netinfo_cell: Option<(msg::Netinfo, coarsetime::Instant)> = None;
+        let mut netinfo_cell: Option<(msg::Netinfo, crate::util::wasm_time::Instant)> = None;
 
         // IMPORTANT: Protocol wise, we MUST only allow one single cell of each type for a valid
         // handshake. Any duplicates lead to a failure. They can arrive in any order unfortunately.
@@ -174,7 +174,7 @@ where
                             "Somehow tried to record a duplicate NETINFO cell"
                         )));
                     }
-                    netinfo_cell = Some((n, coarsetime::Instant::now()));
+                    netinfo_cell = Some((n, crate::util::wasm_time::Instant::now()));
                     break;
                 }
                 // This should not happen because the ChannelFrame makes sure that only allowed cell on
@@ -393,8 +393,9 @@ impl<
         );
 
         trace!(stream_id = %self.unique_id, "received handshake, ready to verify.");
+        trace!("DEBUG: about to create UnverifiedChannel struct");
 
-        Ok(UnverifiedChannel {
+        let result = UnverifiedChannel {
             channel_type: ChannelType::ClientInitiator,
             link_protocol,
             framed_tls: self.framed_tls,
@@ -408,7 +409,9 @@ impl<
             memquota: self.memquota.clone(),
             #[cfg(feature = "relay")]
             identities: None,
-        })
+        };
+        trace!("DEBUG: UnverifiedChannel struct created, returning");
+        Ok(result)
     }
 }
 
@@ -824,8 +827,8 @@ impl<
 /// that you have authenticated the other party.
 pub(crate) fn unauthenticated_clock_skew(
     netinfo_cell: &msg::Netinfo,
-    netinfo_rcvd_at: coarsetime::Instant,
-    versions_flushed_at: coarsetime::Instant,
+    netinfo_rcvd_at: crate::util::wasm_time::Instant,
+    versions_flushed_at: crate::util::wasm_time::Instant,
     versions_flushed_wallclock: SystemTime,
 ) -> ClockSkew {
     // Try to compute our clock skew.  It won't be authenticated yet, since we haven't checked
@@ -835,7 +838,7 @@ pub(crate) fn unauthenticated_clock_skew(
         ClockSkew::from_handshake_timestamps(
             versions_flushed_wallclock,
             netinfo_timestamp,
-            delay.into(),
+            delay.as_std_duration(),
         )
     } else {
         ClockSkew::None

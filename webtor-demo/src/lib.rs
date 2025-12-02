@@ -8,6 +8,9 @@ use std::sync::{Arc, Mutex};
 // Import the webtor WASM bindings
 use webtor_wasm::{TorClient, TorClientOptions, JsHttpResponse, JsCircuitStatus};
 
+// Re-export webtor_wasm's init, log functions so they're accessible from JS
+pub use webtor_wasm::{init as webtor_init, set_log_callback, set_debug_enabled};
+
 /// Main demo application
 #[wasm_bindgen]
 pub struct DemoApp {
@@ -575,6 +578,10 @@ impl Clone for DemoApp {
 #[wasm_bindgen(start)]
 pub fn main() -> Result<(), JsValue> {
     console::log_1(&"Webtor Demo starting...".into());
+    
+    // Initialize webtor's tracing first
+    webtor_init();
+    console::log_1(&"Webtor tracing initialized".into());
     
     // Create the demo app
     let app = DemoApp::new()?;

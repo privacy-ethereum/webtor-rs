@@ -88,7 +88,6 @@ bytes = "1"
 caret = { path = "../caret", version = "0.8.0" }
 cfg-if = "1.0.0"
 cipher = { version = "0.4.1", features = ["zeroize"] }
-coarsetime = "0.1.20"
 ctr = { version = "0.9", optional = true, features = ["zeroize"] }
 derive-deftly = "1.5.0"
 derive_builder = { version = "0.11.2", package = "derive_builder_fork_arti" }
@@ -144,6 +143,14 @@ zeroize = "1"
 
 [target.'cfg(any(target_arch = "x86", target_arch = "x86_64"))'.dependencies]
 criterion-cycles-per-byte = "0.7.0"
+
+# Native-only dependencies (not needed for WASM)
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+coarsetime = "0.1.20"
+
+# WASM-specific dependencies
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = ["Window", "Performance"] }
 
 [dev-dependencies]
 assert_matches = "1.5.0"

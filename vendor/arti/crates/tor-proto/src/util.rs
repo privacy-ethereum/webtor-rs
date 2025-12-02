@@ -13,6 +13,7 @@ pub(crate) mod stream_poll_set;
 pub(crate) mod token_bucket;
 pub(crate) mod ts;
 pub(crate) mod tunnel_activity;
+pub(crate) mod wasm_time;
 
 use futures::Sink;
 use std::pin::Pin;

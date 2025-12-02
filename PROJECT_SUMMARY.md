@@ -268,6 +268,71 @@ cargo test -p webtor --test e2e -- --ignored --nocapture
 cargo test -p webtor --test e2e test_webtunnel_https_request -- --ignored --nocapture
 ```
 
+## 🐛 Known Issues & Fixes
+
+### TLS 1.3 Handshake Message Boundary Bug (FIXED - Dec 2024)
+
+**Problem**: When TLS handshake messages (Certificate, CertificateVerify) spanned multiple encrypted records, message boundaries got corrupted. After parsing Certificate, the remaining buffer bytes didn't start with a valid handshake message header.
+
+**Root Cause**: In `subtle-tls/src/record.rs`, the padding removal logic was incorrectly stripping trailing zero bytes from decrypted TLS records. In TLS 1.3, the inner plaintext format is `[content][content_type][zeros...]`, where zeros are optional padding AFTER the content type byte. The code was scanning backward past zeros to find the content type, but this incorrectly stripped legitimate zero bytes from the actual content data (e.g., Certificate DER encoding often ends with `0x00` bytes).
+
+**Fix**: Simplified the decryption logic to just take the last byte as the content type without attempting to skip padding zeros. Most servers don't use padding, and even if they do, this approach works correctly because the content type will still be the last non-zero byte before any padding.
+
+```rust
+// Before (broken):
+let mut i = plaintext.len() - 1;
+while i > 0 && plaintext[i] == 0 { i -= 1; }
+let actual_content_type = plaintext[i];
+let data = plaintext[..i].to_vec();
+
+// After (fixed):
+let actual_content_type = plaintext[plaintext.len() - 1];
+let data = plaintext[..plaintext.len() - 1].to_vec();
+```
+
+### WASM Time Support (FIXED - Dec 2024)
+
+**Problem**: After TLS handshake completes, the Tor channel handshake (NETINFO cell processing) panics with "time not implemented on this platform" in `tor-proto`.
+
+**Root Cause**: Multiple locations in `tor-proto` and `tor-rtcompat` used `std::time::Instant` which is not available in WASM.
+
+**Fix**:
+1. Created `PortableInstant` type in `tor-rtcompat/src/portable_instant.rs` for WASM-compatible time handling
+2. Updated `tunnel_activity.rs` to use `crate::util::wasm_time::Instant` instead of `std::time::Instant`
+3. Created `wasm_time.rs` module in `tor-proto` with WASM-compatible `Instant` implementation
+4. Updated multiple files across tor-rtcompat, tor-rtmock, tor-proto, tor-log-ratelim
+
+**Status**: ✅ RESOLVED - WASM time handling now works correctly.
+
+### TLS ECDSA P-384 Curve Support (FIXED - Dec 2024)
+
+**Problem**: HTTPS requests through Tor failed with "The imported EC key specifies a different curve than requested" during certificate verification. Servers like example.com use ECDSA with P-384 curve.
+
+**Root Cause**: In `subtle-tls/src/cert.rs`:
+1. `get_crypto_algorithm()` hardcoded `P-256` for all ECDSA signatures, regardless of the actual curve
+2. `convert_ecdsa_signature_from_der()` was hardcoded for 32-byte coordinates (P-256 only)
+
+**Fix**:
+1. Added `get_crypto_algorithm_from_key()` function that extracts the actual EC curve (P-256, P-384, P-521) from the certificate's `SubjectPublicKeyInfo.algorithm.parameters`
+2. Added `get_ec_curve_from_key()` helper that parses curve OIDs:
+   - P-256 (secp256r1): 1.2.840.10045.3.1.7
+   - P-384 (secp384r1): 1.3.132.0.34
+   - P-521 (secp521r1): 1.3.132.0.35
+3. Created `convert_ecdsa_signature_from_der_sized()` that accepts coordinate size (32 for P-256, 48 for P-384)
+4. Updated `verify_signature_with_subtle_crypto()` and `verify_certificate_verify()` to use correct coordinate size based on hash algorithm
+
+**Status**: ✅ RESOLVED - HTTPS requests now work with servers using P-384 certificates.
+
+### TLS ALPN Extension (FIXED - Dec 2024)
+
+**Problem**: TLS handshake immediately failed with `close_notify` alert when connecting to HTTPS servers.
+
+**Root Cause**: The TLS ClientHello was missing the ALPN (Application-Layer Protocol Negotiation) extension. Many servers require ALPN to determine which protocol the client supports.
+
+**Fix**: Added `build_alpn_extension()` method to `subtle-tls/src/handshake.rs` that advertises "http/1.1" protocol support in the ClientHello.
+
+**Status**: ✅ RESOLVED - TLS handshakes now complete successfully.
+
 ## 📝 Development Notes
 
 ### Bridge Sources

@@ -10,7 +10,8 @@ use educe::Educe;
 use futures::{future::FutureObj, task::Spawn};
 use std::future::Future;
 use std::io::Result as IoResult;
-use std::time::{Instant, SystemTime};
+use std::time::SystemTime;
+use crate::portable_instant::Instant;
 use tor_general_addr::unix;
 
 /// A runtime made of several parts, each of which implements one trait-group.

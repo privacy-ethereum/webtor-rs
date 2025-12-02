@@ -2,8 +2,9 @@
 
 use crate::error::{Result, TorError};
 use crate::relay::{Relay, RelayManager};
+use crate::time::Instant;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{debug, info, error};
 use tor_proto::{ClientTunnel, CellCount, FlowCtrlParameters};
@@ -190,6 +191,17 @@ impl CircuitManager {
         let circuit_id = format!("circuit_{}", uuid::Uuid::new_v4());
         info!("Creating new circuit: {}", circuit_id);
         
+        // Log relay manager state
+        let relay_manager = self.relay_manager.read().await;
+        let total_relays = relay_manager.relays.len();
+        drop(relay_manager);
+        info!("Relay manager has {} total relays", total_relays);
+        
+        if total_relays == 0 {
+            error!("No relays available in relay manager - cannot create circuit");
+            return Err(TorError::Internal("No relays available".to_string()));
+        }
+        
         let channel_guard = self.channel.read().await;
         let channel = channel_guard.as_ref()
             .ok_or_else(|| TorError::Internal("Channel not established".to_string()))?
@@ -245,16 +257,24 @@ impl CircuitManager {
 
         // Select relays
         let relay_manager = self.relay_manager.read().await;
+        info!("Selecting relays from {} available", relay_manager.relays.len());
         
         // Middle
         // Ensure we don't select the bridge as middle
-        let middle = relay_manager.select_relay(
-            &crate::relay::selection::middle_relays()
-                .without_fingerprint(&bridge_fingerprint)
-        )?;
+        let middle_criteria = crate::relay::selection::middle_relays()
+            .without_fingerprint(&bridge_fingerprint);
+        debug!("Middle relay criteria: {:?}", middle_criteria);
+        
+        let middle = match relay_manager.select_relay(&middle_criteria) {
+            Ok(r) => r,
+            Err(e) => {
+                error!("Failed to select middle relay: {} (available: {})", e, relay_manager.relays.len());
+                return Err(e);
+            }
+        };
         let middle_target = middle.as_circ_target()?;
         
-        info!("Extending to middle: {}", middle.nickname);
+        info!("Extending to middle: {} (fp={})", middle.nickname, &middle.fingerprint[..8.min(middle.fingerprint.len())]);
         let params = make_circ_params()?;
         tunnel.as_single_circ()
             .map_err(|e| TorError::Internal(format!("Failed to get single circ for middle extend: {}", e)))?
@@ -264,14 +284,21 @@ impl CircuitManager {
             
         // Exit
         // Ensure we don't select bridge or middle as exit
-        let exit = relay_manager.select_relay(
-            &crate::relay::selection::exit_relays()
-                .without_fingerprint(&bridge_fingerprint)
-                .without_fingerprint(&middle.fingerprint)
-        )?;
+        let exit_criteria = crate::relay::selection::exit_relays()
+            .without_fingerprint(&bridge_fingerprint)
+            .without_fingerprint(&middle.fingerprint);
+        debug!("Exit relay criteria: {:?}", exit_criteria);
+        
+        let exit = match relay_manager.select_relay(&exit_criteria) {
+            Ok(r) => r,
+            Err(e) => {
+                error!("Failed to select exit relay: {} (available: {})", e, relay_manager.relays.len());
+                return Err(e);
+            }
+        };
         let exit_target = exit.as_circ_target()?;
         
-        info!("Extending to exit: {}", exit.nickname);
+        info!("Extending to exit: {} (fp={})", exit.nickname, &exit.fingerprint[..8.min(exit.fingerprint.len())]);
         let params = make_circ_params()?;
         tunnel.as_single_circ()
             .map_err(|e| TorError::Internal(format!("Failed to get single circ for exit extend: {}", e)))?
@@ -361,34 +388,42 @@ impl CircuitManager {
         let max_age = Duration::from_secs(60 * 60); // 1 hour
         let max_idle = Duration::from_secs(60 * 10); // 10 minutes
         
-        let mut count = circuits.len();
+        // Gather circuit info asynchronously first
+        let mut to_remove = Vec::new();
+        let total_count = circuits.len();
+        let mut remaining = total_count;
         
-        circuits.retain(|circuit| {
-            let circuit_read = circuit.blocking_read();
+        for (idx, circuit) in circuits.iter().enumerate() {
+            let circuit_read = circuit.read().await;
             
             // Remove failed circuits
             if circuit_read.is_failed() {
                 info!("Removing failed circuit: {}", circuit_read.id);
-                count -= 1;
-                return false;
+                to_remove.push(idx);
+                remaining -= 1;
+                continue;
             }
             
             // Remove very old circuits
             if circuit_read.age() > max_age {
                 info!("Removing old circuit: {} (age: {:?})", circuit_read.id, circuit_read.age());
-                count -= 1;
-                return false;
+                to_remove.push(idx);
+                remaining -= 1;
+                continue;
             }
             
             // Remove idle circuits (but keep at least one)
-            if circuit_read.time_since_last_use() > max_idle && count > 1 {
+            if circuit_read.time_since_last_use() > max_idle && remaining > 1 {
                 info!("Removing idle circuit: {} (idle: {:?})", circuit_read.id, circuit_read.time_since_last_use());
-                count -= 1;
-                return false;
+                to_remove.push(idx);
+                remaining -= 1;
             }
-            
-            true
-        });
+        }
+        
+        // Remove in reverse order to preserve indices
+        for idx in to_remove.into_iter().rev() {
+            circuits.remove(idx);
+        }
         
         Ok(())
     }

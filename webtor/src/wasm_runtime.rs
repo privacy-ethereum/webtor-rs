@@ -1,4 +1,5 @@
-use std::time::{Duration, Instant};
+use crate::time::system_time_now;
+use std::time::Duration;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -32,39 +33,29 @@ impl SleepProvider for WasmRuntime {
         WasmSleep::new(duration)
     }
 
-    fn now(&self) -> Instant {
-        Instant::now()
+    fn now(&self) -> tor_rtcompat::PortableInstant {
+        tor_rtcompat::PortableInstant::now()
     }
 
     fn wallclock(&self) -> std::time::SystemTime {
-        std::time::SystemTime::now()
+        system_time_now()
     }
 }
 
 pub struct WasmSleep {
-    // We'll use a oneshot channel to signal completion
-    // The timer callback will send a message
     rx: futures::channel::oneshot::Receiver<()>,
 }
 
 impl WasmSleep {
     fn new(duration: Duration) -> Self {
         let (tx, rx) = futures::channel::oneshot::channel();
-        let _millis = duration.as_millis() as i32;
-        
-        // This requires web-sys with "Window" and "setTimeout"
-        // But wait, we are in a library, we might not have access to window global easily if in worker?
-        // gloo-timers is better but I didn't add it.
-        // I'll use wasm-bindgen's setTimeout wrapper or similar.
-        
-        // For now, let's assume we can access window or use a simplistic approach
-        // Actually, gloo-timers is the standard way. I should probably add it.
-        // Or just use setTimeout directly via web-sys.
         
         #[cfg(target_arch = "wasm32")]
         {
             use wasm_bindgen::prelude::*;
             use wasm_bindgen::JsCast;
+            
+            let millis = duration.as_millis() as i32;
             
             let closure = Closure::once(move || {
                 let _ = tx.send(());
@@ -76,8 +67,6 @@ impl WasmSleep {
                 millis,
             );
             
-            // We need to leak the closure so it doesn't get dropped before execution
-            // But usually we want to clean it up. Closure::once cleans up after one call.
             closure.forget(); 
         }
         

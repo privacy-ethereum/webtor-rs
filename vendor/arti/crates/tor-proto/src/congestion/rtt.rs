@@ -3,7 +3,7 @@
 use std::cmp::{max, min};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use crate::util::wasm_time::{Duration, Instant};
 
 use super::params::RoundTripEstimatorParams;
 use super::{CongestionWindow, State};

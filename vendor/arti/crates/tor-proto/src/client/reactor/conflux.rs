@@ -953,7 +953,7 @@ impl ConfluxSet {
             // StreamMap::closed_streams into a min-heap, and add a branch to the
             // select_biased! below to sleep until the first expiry is due
             // (but my gut feeling is that iterating is cheaper)
-            leg.remove_expired_halfstreams(runtime.now());
+            leg.remove_expired_halfstreams(crate::util::wasm_time::Instant::now());
 
             // The client SHOULD abandon and close circuit if the LINKED message takes too long to
             // arrive. This timeout MUST be no larger than the normal SOCKS/stream timeout in use for

@@ -3,7 +3,8 @@
 use std::future::Future;
 use std::mem::{self, MaybeUninit};
 use std::pin::Pin;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
+use crate::portable_instant::Instant;
 
 use dyn_clone::DynClone;
 use educe::Educe;

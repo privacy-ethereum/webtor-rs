@@ -3,19 +3,29 @@
 //! This module provides TLS encryption for:
 //! - Tor DataStreams (HTTPS over Tor)
 //! - Direct connections (for bridge transport like WebTunnel)
+//!
+//! Note: In WASM, TLS is handled by the browser's native WebSocket (wss://)
+//! and fetch API. The TLS functions here are only for native builds.
 
 use crate::error::{Result, TorError};
 use futures::io::{AsyncRead, AsyncWrite};
-use futures_rustls::rustls::{ClientConfig, RootCertStore};
-use futures_rustls::TlsConnector;
-use rustls_pki_types::ServerName;
 use std::io;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context, Poll};
+
+#[cfg(not(target_arch = "wasm32"))]
+use futures_rustls::rustls::{ClientConfig, RootCertStore};
+#[cfg(not(target_arch = "wasm32"))]
+use futures_rustls::TlsConnector;
+#[cfg(not(target_arch = "wasm32"))]
+use rustls_pki_types::ServerName;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
 use tracing::{debug, info};
 
 /// Create a TLS connector with the default root certificates
+#[cfg(not(target_arch = "wasm32"))]
 pub fn create_tls_connector() -> Result<TlsConnector> {
     let mut root_store = RootCertStore::empty();
     
@@ -32,6 +42,7 @@ pub fn create_tls_connector() -> Result<TlsConnector> {
 }
 
 /// Wrap an async stream with TLS encryption
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn wrap_with_tls<S>(
     stream: S,
     domain: &str,
@@ -232,7 +243,7 @@ impl AsyncWrite for TlsStream {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     

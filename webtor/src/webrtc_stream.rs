@@ -32,7 +32,7 @@ mod wasm {
     use super::*;
     use crate::snowflake_broker::BrokerClient;
     use futures::channel::mpsc;
-    use futures::StreamExt;
+    use futures::{FutureExt, StreamExt};
     use js_sys::{Array, Object, Reflect};
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -40,10 +40,8 @@ mod wasm {
     use wasm_bindgen::prelude::*;
     use wasm_bindgen::JsCast;
     use web_sys::{
-        RtcConfiguration, RtcDataChannel, RtcDataChannelEvent, RtcDataChannelInit,
-        RtcDataChannelState, RtcIceCandidate, RtcIceCandidateInit, RtcIceConnectionState,
-        RtcIceGatheringState, RtcPeerConnection, RtcPeerConnectionIceEvent, RtcSdpType,
-        RtcSessionDescriptionInit,
+        RtcConfiguration, RtcDataChannel, RtcDataChannelInit, RtcDataChannelState,
+        RtcIceGatheringState, RtcPeerConnection, RtcSdpType, RtcSessionDescriptionInit,
     };
 
     /// WebRTC stream wrapper for Snowflake
@@ -266,7 +264,7 @@ mod wasm {
         dc.set_onopen(Some(on_open.as_ref().unchecked_ref()));
 
         let tx_err = tx.clone();
-        let on_error_open = Closure::wrap(Box::new(move |_: web_sys::Event| {
+        let _on_error_open = Closure::wrap(Box::new(move |_: web_sys::Event| {
             if let Some(tx) = tx_err.borrow_mut().take() {
                 let _ = tx.send(Err("DataChannel error during open".to_string()));
             }

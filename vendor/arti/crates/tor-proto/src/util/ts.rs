@@ -2,6 +2,7 @@
 //! happened.
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use super::wasm_time::{Duration, Instant};
 
 /// An object for determining whether an event happened,
 /// and if yes, when it happened.
@@ -9,15 +10,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// Every `Timestamp` has internal mutability.  A timestamp can move
 /// forward in time, but never backwards.
 ///
-/// Internally, it uses the `coarsetime` crate to represent times in a way
+/// Internally, it uses ticks to represent times in a way
 /// that lets us do atomic updates.
 #[derive(Default, Debug)]
 pub(crate) struct AtomicOptTimestamp {
-    /// A timestamp (from `coarsetime`) describing when this timestamp
-    /// was last updated.
-    ///
-    /// I'd rather just use [`coarsetime::Instant`], but that doesn't have
-    /// an atomic form.
+    /// A timestamp describing when this timestamp was last updated.
     latest: AtomicU64,
 }
 impl AtomicOptTimestamp {
@@ -30,15 +27,13 @@ impl AtomicOptTimestamp {
 
     /// Update this timestamp to (at least) the current time.
     pub(crate) fn update(&self) {
-        // TODO: Do we want to use 'Instant::recent() instead,' and
-        // add an updater thread?
-        self.update_to(coarsetime::Instant::now());
+        self.update_to(Instant::now());
     }
 
     /// If the timestamp is currently unset, then set it to the current time.
     /// Otherwise leave it alone.
     pub(crate) fn update_if_none(&self) {
-        let now = coarsetime::Instant::now().as_ticks();
+        let now = Instant::now().as_ticks();
 
         let _ignore = self
             .latest
@@ -53,8 +48,8 @@ impl AtomicOptTimestamp {
     /// Return the time since `update` was last called.
     ///
     /// Return `None` if update was never called.
-    pub(crate) fn time_since_update(&self) -> Option<coarsetime::Duration> {
-        self.time_since_update_at(coarsetime::Instant::now())
+    pub(crate) fn time_since_update(&self) -> Option<Duration> {
+        self.time_since_update_at(Instant::now())
     }
 
     /// Return the time between the time when `update` was last
@@ -65,12 +60,12 @@ impl AtomicOptTimestamp {
     #[inline]
     pub(crate) fn time_since_update_at(
         &self,
-        now: coarsetime::Instant,
-    ) -> Option<coarsetime::Duration> {
+        now: Instant,
+    ) -> Option<Duration> {
         let earlier = self.latest.load(Ordering::Relaxed);
         let now = now.as_ticks();
         if now >= earlier && earlier != 0 {
-            Some(coarsetime::Duration::from_ticks(now - earlier))
+            Some(Duration::from_ticks(now - earlier))
         } else {
             None
         }
@@ -78,7 +73,7 @@ impl AtomicOptTimestamp {
 
     /// Update this timestamp to (at least) the time `now`.
     #[inline]
-    pub(crate) fn update_to(&self, now: coarsetime::Instant) {
+    pub(crate) fn update_to(&self, now: Instant) {
         self.latest.fetch_max(now.as_ticks(), Ordering::Relaxed);
     }
 }
@@ -103,7 +98,7 @@ mod test {
 
     #[test]
     fn opt_timestamp() {
-        use coarsetime::{Duration, Instant};
+        use super::super::wasm_time::{Duration, Instant};
 
         let ts = AtomicOptTimestamp::new();
         assert!(ts.time_since_update().is_none());
@@ -144,16 +139,16 @@ mod test {
         assert!(ts.time_since_update().is_none());
 
         // Calling "update_if_none" on a None AtomicOptTimestamp should set it.
-        let time1 = coarsetime::Instant::now();
+        let time1 = Instant::now();
         ts.update_if_none();
         let d = ts.time_since_update();
-        let time2 = coarsetime::Instant::now();
+        let time2 = Instant::now();
         assert!(d.is_some());
         assert!(d.unwrap() <= time2 - time1);
 
         std::thread::sleep(std::time::Duration::from_millis(100));
         // Calling "update_if_none" on a Some AtomicOptTimestamp doesn't change it.
-        let time3 = coarsetime::Instant::now();
+        let time3 = Instant::now();
         // If coarsetime doesn't register this, then the rest of our test won't work.
         assert!(time3 > time2);
         ts.update_if_none();

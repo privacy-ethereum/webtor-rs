@@ -178,7 +178,7 @@ impl RelayCriteria {
 
 /// Relay manager for selecting appropriate relays
 pub struct RelayManager {
-    relays: Vec<Relay>,
+    pub relays: Vec<Relay>,
 }
 
 impl RelayManager {

@@ -7,7 +7,8 @@ use crate::error::{Result, TorError};
 use crate::http::{HttpRequest, HttpResponse, TorHttpClient};
 use crate::relay::RelayManager;
 #[cfg(target_arch = "wasm32")]
-use crate::snowflake::create_snowflake_stream;
+use crate::snowflake_ws::{SnowflakeWsConfig, SnowflakeWsStream};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::webtunnel::{WebTunnelConfig, create_webtunnel_stream};
 use crate::wasm_runtime::WasmRuntime;
 use tor_proto::channel::ChannelBuilder;
@@ -16,7 +17,7 @@ use tor_memquota::MemoryQuotaTracker;
 use tor_proto::memquota::{ChannelAccount, SpecificAccount};
 use tor_linkspec::OwnedChanTargetBuilder;
 use tor_llcrypto::pk::rsa::RsaIdentity;
-use std::time::SystemTime;
+use crate::time::system_time_now;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -38,7 +39,7 @@ pub struct TorClient {
 impl TorClient {
     /// Create a new Tor client with the given options
     pub async fn new(options: TorClientOptions) -> Result<Self> {
-        info!("Creating new Tor client");
+        info!("TorClient::new START");
         
         // Initialize WASM modules (placeholder for now)
         Self::init_wasm_modules().await?;
@@ -78,12 +79,15 @@ impl TorClient {
             }
             
             // Then establish the channel
+            info!("TorClient::new: calling establish_channel");
             if let Err(e) = client.establish_channel().await {
                 error!("Failed to establish channel: {}", e);
                 // Don't fail the client creation, just log the error
             }
+            info!("TorClient::new: establish_channel returned");
         }
         
+        info!("TorClient::new RETURNING");
         Ok(client)
     }
     
@@ -320,23 +324,29 @@ impl TorClient {
         
         // 1. Connect to bridge based on type
         let chan = match &self.options.bridge {
-            BridgeType::Snowflake { url: _ } => {
-                self.log("Connecting via Snowflake (WebRTC)", LogType::Info);
-                self.log("Using WebRTC → Turbo → KCP → SMUX stack", LogType::Info);
+            BridgeType::Snowflake { url } => {
+                self.log("Connecting via Snowflake (WebSocket)", LogType::Info);
+                self.log("Using WebSocket → Turbo → KCP → SMUX → TLS stack", LogType::Info);
                 #[cfg(target_arch = "wasm32")]
                 {
-                    let stream = create_snowflake_stream("", timeout).await?;
-                    self.log("Connected to Snowflake bridge", LogType::Success);
+                    // Use WebSocket-based Snowflake (like echalote)
+                    let config = SnowflakeWsConfig::default()
+                        .with_url(url)
+                        .with_fingerprint(&fingerprint);
+                    let stream = SnowflakeWsStream::connect(config).await?;
+                    self.log("Connected to Snowflake bridge via WebSocket", LogType::Success);
                     self.create_channel_from_stream(stream, rsa_id).await?
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 {
+                    let _ = url; // suppress unused warning
                     return Err(TorError::Internal(
-                        "Snowflake requires WebRTC which is only available in WASM. \
+                        "Snowflake WebSocket is only available in WASM. \
                          Use WebTunnel bridge for native builds.".to_string()
                     ));
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
             BridgeType::WebTunnel { url, server_name } => {
                 self.log(&format!("Connecting via WebTunnel to {}", url), LogType::Info);
                 let mut config = WebTunnelConfig::new(url.clone(), fingerprint.clone())
@@ -347,6 +357,12 @@ impl TorClient {
                 let stream = create_webtunnel_stream(config).await?;
                 self.log("Connected to WebTunnel bridge", LogType::Success);
                 self.create_channel_from_stream(stream, rsa_id).await?
+            }
+            #[cfg(target_arch = "wasm32")]
+            BridgeType::WebTunnel { .. } => {
+                return Err(TorError::Internal(
+                    "WebTunnel is not supported in WASM. Use Snowflake bridge instead.".to_string()
+                ));
             }
         };
         
@@ -409,7 +425,7 @@ impl TorClient {
         let handshake = builder.launch_client(stream, runtime, chan_account);
         
         debug!("Starting handshake connect...");
-        let unverified = handshake.connect(|| SystemTime::now()).await
+        let unverified = handshake.connect(system_time_now).await
             .map_err(|e| {
                 error!("Handshake connect error details: {:?}", e);
                 TorError::Network(format!("Handshake connect failed: {}", e))
@@ -425,7 +441,8 @@ impl TorClient {
 
         // Pass the peer certificate to check() - this verifies that the CERTS cells
         // properly authenticate the TLS certificate we received
-        let (chan, reactor) = unverified.check(&peer, &peer_cert, None)
+        // Note: We must pass the current time explicitly because SystemTime::now() panics on WASM
+        let (chan, reactor) = unverified.check(&peer, &peer_cert, Some(system_time_now()))
             .map_err(|e| TorError::Network(format!("Handshake check failed: {}", e)))?
             .finish()
             .await

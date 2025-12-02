@@ -7,7 +7,8 @@ use futures::{Stream, StreamExt};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
+use crate::portable_instant::Instant;
 
 use pin_project::pin_project;
 
@@ -267,7 +268,8 @@ mod test {
     use crate::{SleepProvider, test_with_all_runtimes};
     use futures::FutureExt;
     use futures::StreamExt;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
+    use crate::portable_instant::Instant;
 
     #[test]
     fn it_fires_immediately() {

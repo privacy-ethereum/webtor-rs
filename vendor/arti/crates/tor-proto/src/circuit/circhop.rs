@@ -39,7 +39,7 @@ use std::num::NonZeroU32;
 use std::pin::Pin;
 use std::result::Result as StdResult;
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Instant;
+use crate::util::wasm_time::Instant;
 
 #[cfg(test)]
 use tor_cell::relaycell::msg::SendmeTag;

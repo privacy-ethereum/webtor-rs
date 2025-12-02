@@ -2,6 +2,7 @@
 
 use crate::circuit::CircuitManager;
 use crate::error::{Result, TorError};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::tls::wrap_with_tls;
 use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use http::Method;
@@ -245,9 +246,31 @@ impl TorHttpClient {
         
         // Execute request with or without TLS
         let response_bytes = if is_https {
-            // Wrap stream with TLS
-            let tls_stream = wrap_with_tls(stream, host).await?;
-            execute_http_request(tls_stream, &request_bytes).await?
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                // Wrap stream with TLS using rustls
+                let tls_stream = wrap_with_tls(stream, host).await?;
+                execute_http_request(tls_stream, &request_bytes).await?
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                // Use subtle-tls for WASM (SubtleCrypto-based TLS 1.3)
+                use subtle_tls::{TlsConnector, TlsConfig};
+                
+                let config = TlsConfig {
+                    skip_verification: false, // TODO: Implement proper cert validation
+                    alpn_protocols: vec!["http/1.1".to_string()],
+                };
+                let connector = TlsConnector::with_config(config);
+                
+                let mut tls_stream = connector.connect(stream, host).await
+                    .map_err(|e| TorError::tls(format!("TLS handshake failed: {}", e)))?;
+                
+                info!("TLS connection established with {} (WASM/SubtleCrypto)", host);
+                
+                // Use the async read/write methods directly
+                execute_http_request_wasm(&mut tls_stream, &request_bytes).await?
+            }
         } else {
             execute_http_request(stream, &request_bytes).await?
         };
@@ -307,6 +330,51 @@ impl TorHttpClient {
             .with_body(body);
         self.request(request).await
     }
+}
+
+/// Execute an HTTP request over a TLS stream in WASM using async methods
+#[cfg(target_arch = "wasm32")]
+async fn execute_http_request_wasm<S>(
+    tls_stream: &mut subtle_tls::TlsStream<S>,
+    request_bytes: &[u8],
+) -> Result<Vec<u8>>
+where
+    S: futures::io::AsyncRead + futures::io::AsyncWrite + Unpin,
+{
+    // Write the request
+    tls_stream.write(request_bytes).await
+        .map_err(|e| TorError::http_request(format!("Failed to write request: {}", e)))?;
+    tls_stream.flush().await
+        .map_err(|e| TorError::http_request(format!("Failed to flush request: {}", e)))?;
+    
+    // Read the response
+    let mut response_bytes = Vec::new();
+    let mut buf = [0u8; 8192];
+    
+    loop {
+        match tls_stream.read(&mut buf).await {
+            Ok(0) => break, // EOF
+            Ok(n) => {
+                response_bytes.extend_from_slice(&buf[..n]);
+                debug!("Read {} bytes (total: {})", n, response_bytes.len());
+                
+                // Limit response size to 1MB for safety
+                if response_bytes.len() > 1024 * 1024 {
+                    warn!("Response exceeds 1MB limit, truncating");
+                    break;
+                }
+            }
+            Err(e) => {
+                if response_bytes.is_empty() {
+                    return Err(TorError::http_request(format!("Failed to read response: {}", e)));
+                }
+                debug!("Read ended with error (may be normal close): {}", e);
+                break;
+            }
+        }
+    }
+    
+    Ok(response_bytes)
 }
 
 /// Execute an HTTP request over a stream and return the response bytes

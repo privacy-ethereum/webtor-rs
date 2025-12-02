@@ -129,7 +129,7 @@ define_derive_deftly! {
         fn sleep(&self, dur: Duration) -> Self::SleepFuture {
             self.$fname.sleep(dur)
         }
-        fn now(&self) -> Instant {
+        fn now(&self) -> tor_rtcompat::PortableInstant {
             self.$fname.now()
         }
         fn wallclock(&self) -> SystemTime {
@@ -180,7 +180,8 @@ pub(crate) mod impl_runtime_prelude {
     pub(crate) use futures::task::{FutureObj, Spawn, SpawnError};
     pub(crate) use std::io::Result as IoResult;
     pub(crate) use std::net::SocketAddr;
-    pub(crate) use std::time::{Duration, Instant, SystemTime};
+    pub(crate) use std::time::{Duration, SystemTime};
+    pub(crate) use tor_rtcompat::PortableInstant as Instant;
     pub(crate) use tor_rtcompat::{
         Blocking, CoarseInstant, CoarseTimeProvider, NetStreamProvider, Runtime, SleepProvider,
         TlsProvider, ToplevelBlockOn, UdpProvider, unimpl::FakeListener, unimpl::FakeStream,

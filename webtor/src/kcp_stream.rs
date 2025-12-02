@@ -10,13 +10,14 @@
 //! - transport -> input() -> rcv_buf -> recv() -> application
 
 use crate::error::{Result, TorError};
+use crate::time::Instant;
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use kcp::Kcp;
 use std::io::{self, Write};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tracing::{trace, debug};
 
 /// Output buffer that collects data from KCP for sending

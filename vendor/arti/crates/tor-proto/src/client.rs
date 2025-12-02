@@ -203,7 +203,7 @@ impl ClientTunnel {
     /// NOTE that the Instant returned by this method is not affected by
     /// any runtime mocking; it is the output of an ordinary call to
     /// `Instant::now()`.
-    pub async fn disused_since(&self) -> Result<Option<std::time::Instant>> {
+    pub async fn disused_since(&self) -> Result<Option<crate::util::wasm_time::Instant>> {
         self.circ.disused_since().await
     }
 

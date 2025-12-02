@@ -10,7 +10,6 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Function to print colored output
 print_status() {
     echo -e "${GREEN}[INFO]${NC} $1"
 }
@@ -22,6 +21,21 @@ print_warning() {
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
+
+# Parse arguments
+BUILD_MODE="--release"
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --dev)
+            BUILD_MODE="--dev"
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
 
 # Check if wasm-pack is installed
 if ! command -v wasm-pack &> /dev/null; then
@@ -37,9 +51,11 @@ if ! command -v cargo &> /dev/null; then
     exit 1
 fi
 
+print_status "Build mode: $BUILD_MODE"
+
 print_status "Building webtor-wasm (WebAssembly bindings)..."
 cd webtor-wasm
-wasm-pack build --target web --out-dir pkg
+wasm-pack build --target web --out-dir pkg $BUILD_MODE
 if [ $? -ne 0 ]; then
     print_error "Failed to build webtor-wasm"
     exit 1
@@ -48,7 +64,7 @@ cd ..
 
 print_status "Building webtor-demo (Demo webpage)..."
 cd webtor-demo
-wasm-pack build --target web --out-dir pkg
+wasm-pack build --target web --out-dir pkg $BUILD_MODE
 if [ $? -ne 0 ]; then
     print_error "Failed to build webtor-demo"
     exit 1
@@ -56,25 +72,27 @@ fi
 cd ..
 
 print_status "Copying demo files..."
-mkdir -p webtor-demo/pkg
+mkdir -p webtor-demo/static/pkg
 cp -r webtor-demo/pkg/* webtor-demo/static/pkg/
 
-print_status "Building native webtor library (for testing)..."
-cargo build --release
-if [ $? -ne 0 ]; then
-    print_warning "Failed to build native webtor library (this is optional)"
+# Show WASM sizes
+echo ""
+if [ -f webtor-wasm/pkg/webtor_wasm_bg.wasm ]; then
+    SIZE=$(ls -lh webtor-wasm/pkg/webtor_wasm_bg.wasm | awk '{print $5}')
+    print_status "webtor-wasm.wasm: $SIZE"
+fi
+if [ -f webtor-demo/pkg/webtor_demo_bg.wasm ]; then
+    SIZE=$(ls -lh webtor-demo/pkg/webtor_demo_bg.wasm | awk '{print $5}')
+    print_status "webtor-demo.wasm: $SIZE"
 fi
 
-print_status "Running tests..."
-cargo test --workspace
-if [ $? -ne 0 ]; then
-    print_warning "Some tests failed (expected for WASM modules in native environment)"
-fi
-
+echo ""
 print_status "Build completed successfully!"
+echo ""
+print_status "Usage:"
+print_status "  ./build.sh          # Production build (optimized, slower compile)"
+print_status "  ./build.sh --dev    # Development build (fast compile, no optimization)"
+echo ""
 print_status "To run the demo:"
-print_status "1. cd webtor-demo/static"
-print_status "2. python3 -m http.server 8000"
-print_status "3. Open http://localhost:8000 in your browser"
-print_status ""
-print_status "Note: The demo requires a modern browser with WebAssembly support."
+print_status "  cd webtor-demo/static && python3 -m http.server 8000"
+print_status "  Open http://localhost:8000 in your browser"

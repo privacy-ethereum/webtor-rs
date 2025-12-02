@@ -64,7 +64,12 @@ web-sys = { version = "0.3.69", features = [
     "RtcDataChannelState",
     "RtcIceConnectionState",
     "RtcIceGatheringState",
-    "RtcSignalingState"
+    "RtcSignalingState",
+    "RtcDataChannelType",
+    # HTTP fetch features
+    "RequestMode",
+    # Performance API for timing
+    "Performance"
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
@@ -122,3 +127,33 @@ kcp = "0.6"
 
 [patch.crates-io]
 tor-basic-utils = { path = "vendor/arti/crates/tor-basic-utils" }
+tor-proto = { path = "vendor/arti/crates/tor-proto" }
+tor-rtcompat = { path = "vendor/arti/crates/tor-rtcompat" }
+tor-async-utils = { path = "vendor/arti/crates/tor-async-utils" }
+tor-rtmock = { path = "vendor/arti/crates/tor-rtmock" }
+tor-memquota = { path = "vendor/arti/crates/tor-memquota" }
+tor-units = { path = "vendor/arti/crates/tor-units" }
+tor-log-ratelim = { path = "vendor/arti/crates/tor-log-ratelim" }
+safelog = { path = "vendor/arti/crates/safelog" }
+slotmap-careful = { path = "vendor/arti/crates/slotmap-careful" }
+caret = { path = "vendor/arti/crates/caret" }
+oneshot-fused-workaround = { path = "vendor/arti/crates/oneshot-fused-workaround" }
+tor-bytes = { path = "vendor/arti/crates/tor-bytes" }
+tor-cell = { path = "vendor/arti/crates/tor-cell" }
+tor-cert = { path = "vendor/arti/crates/tor-cert" }
+tor-config = { path = "vendor/arti/crates/tor-config" }
+tor-error = { path = "vendor/arti/crates/tor-error" }
+tor-linkspec = { path = "vendor/arti/crates/tor-linkspec" }
+tor-llcrypto = { path = "vendor/arti/crates/tor-llcrypto" }
+tor-protover = { path = "vendor/arti/crates/tor-protover" }
+tor-relay-crypto = { path = "vendor/arti/crates/tor-relay-crypto" }
+tor-config-path = { path = "vendor/arti/crates/tor-config-path" }
+tor-persist = { path = "vendor/arti/crates/tor-persist" }
+tor-general-addr = { path = "vendor/arti/crates/tor-general-addr" }
+tor-hscrypto = { path = "vendor/arti/crates/tor-hscrypto" }
+tor-key-forge = { path = "vendor/arti/crates/tor-key-forge" }
+tor-keymgr = { path = "vendor/arti/crates/tor-keymgr" }
+tor-checkable = { path = "vendor/arti/crates/tor-checkable" }
+tor-netdoc = { path = "vendor/arti/crates/tor-netdoc" }
+fslock-guard = { path = "vendor/arti/crates/fslock-guard" }
+fs-mistrust = { path = "vendor/arti/crates/fs-mistrust" }
