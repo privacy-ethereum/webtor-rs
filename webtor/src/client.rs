@@ -492,11 +492,17 @@ impl TorClient {
 
 impl Drop for TorClient {
     fn drop(&mut self) {
-        // Try to clean up, but don't block since we're in drop
-        let client = self.clone();
-        tokio::spawn(async move {
-            client.close().await;
-        });
+        // For WASM, we can't spawn async tasks from Drop reliably.
+        // The explicit close() call in fetch_one_time handles cleanup.
+        // For native builds, we spawn a cleanup task.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let client = self.clone();
+            tokio::spawn(async move {
+                client.close().await;
+            });
+        }
+        // On WASM, Drop is a no-op - callers must call close() explicitly
     }
 }
 
