@@ -72,19 +72,13 @@ Access at: `http://localhost:8000`
 *   **Logging**: `tracing` ecosystem.
 
 ## Recent Changes
-*   **Tor Circuit Creation**: Implemented full circuit creation using `arti`'s `ClientTunnel` API.
-    *   Updated `webtor/src/circuit.rs` to use `tor_proto::channel::Channel::new_tunnel` and `PendingClientTunnel::create_firsthop_fast`.
-    *   Updated `webtor/src/relay.rs` to implement `OwnedCircTarget` construction for relays.
-    *   Added `make_circ_params` helper to construct default circuit parameters.
-    *   Updated `Circuit` struct to hold `ClientTunnel`.
-    *   Added dependencies: `tor-protover`, `tor-units`, `rand` to `webtor` and root workspace.
-    *   **PR Review Fixes**:
-        *   Addressed issue where bridge/first hop was missing from circuit relay list.
-        *   Added error logging for circuit reactor task.
-        *   Fixed one-time fetch to ensure channel establishment.
-        *   Renamed `create_initial_circuit` to `establish_channel` for clarity.
-        *   **Path Selection Fix**:
-            *   Updated `RelayCriteria` to support excluding specific relay fingerprints.
-            *   Updated `CircuitManager::create_circuit` to enforce distinct relays for each hop (Bridge != Middle != Exit).
-            *   Updated `RelayManager::select_relay` to randomize selection among top candidates instead of being deterministic.
-*   **Channel Integration**: Passed shared `Channel` from `TorClient` to `CircuitManager` to enable circuit creation on the established Snowflake channel.
+*   **Consensus Fetching & HTTP Client** (PR #3):
+    *   Implemented `DirectoryManager` to fetch microdescriptor consensus via a 1-hop circuit to the bridge (`begin_dir_stream`).
+    *   Implemented `TorHttpClient::request` using `ClientTunnel::begin_stream` and `httparse` for basic HTTP/1.1 requests over Tor.
+    *   Updated `Circuit` to hold `Arc<ClientTunnel>` to allow concurrent usage by directory manager and HTTP client.
+    *   Added `TorClient::bootstrap()` to orchestrate the initial consensus fetch.
+*   **Tor Circuit Creation** (Merged in PR #2):
+    *   Full circuit creation using `arti`'s `ClientTunnel`.
+    *   Correct 3-hop reporting (including bridge).
+    *   Randomized path selection with exclusion logic to ensure distinct relays.
+    *   Channel sharing between Client and CircuitManager.

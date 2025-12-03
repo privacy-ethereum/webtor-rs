@@ -59,6 +59,9 @@ pub enum TorError {
     
     #[error("Internal error: {0}")]
     Internal(String),
+
+    #[error("NetDoc error: {0}")]
+    NetDoc(#[from] tor_netdoc::Error),
 }
 
 impl TorError {

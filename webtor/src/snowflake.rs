@@ -7,7 +7,7 @@ use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tracing::{debug, info};
+use tracing::info;
 
 /// Snowflake bridge connection manager
 pub struct SnowflakeBridge {

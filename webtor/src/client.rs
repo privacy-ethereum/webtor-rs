@@ -2,6 +2,7 @@
 
 use crate::circuit::{CircuitManager, CircuitStatusInfo};
 use crate::config::{LogType, TorClientOptions};
+use crate::directory::DirectoryManager;
 use crate::error::{Result, TorError};
 use crate::http::{HttpRequest, HttpResponse, TorHttpClient};
 use crate::relay::RelayManager;
@@ -11,9 +12,9 @@ use tor_proto::channel::ChannelBuilder;
 use http::Method;
 use tor_memquota::MemoryQuotaTracker;
 use tor_proto::memquota::{ChannelAccount, SpecificAccount};
-use tor_linkspec::{OwnedChanTargetBuilder, ChanTarget};
-use tor_llcrypto::pk::{ed25519::Ed25519Identity, rsa::RsaIdentity};
-use std::time::{Instant, SystemTime};
+use tor_linkspec::OwnedChanTargetBuilder;
+use tor_llcrypto::pk::rsa::RsaIdentity;
+use std::time::SystemTime;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -24,6 +25,7 @@ use url::Url;
 pub struct TorClient {
     options: TorClientOptions,
     circuit_manager: Arc<RwLock<CircuitManager>>,
+    directory_manager: Arc<DirectoryManager>,
     http_client: Arc<TorHttpClient>,
     is_initialized: Arc<RwLock<bool>>,
     // Store the channel to prevent it from being dropped
@@ -44,12 +46,16 @@ impl TorClient {
         
         // Create relay manager with empty relay list (will be populated later)
         let relay_manager = RelayManager::new(Vec::new());
-        let circuit_manager = CircuitManager::new(relay_manager, channel.clone());
+        let relay_manager_arc = Arc::new(RwLock::new(relay_manager));
+        
+        let directory_manager = Arc::new(DirectoryManager::new(relay_manager_arc.clone()));
+        let circuit_manager = Arc::new(RwLock::new(CircuitManager::new(relay_manager_arc.clone(), channel.clone())));
         let http_client = TorHttpClient::new(circuit_manager.clone());
         
         let client = Self {
             options: options.clone(),
-            circuit_manager: Arc::new(RwLock::new(circuit_manager)),
+            circuit_manager,
+            directory_manager,
             http_client: Arc::new(http_client),
             is_initialized: Arc::new(RwLock::new(false)),
             channel,
@@ -66,6 +72,34 @@ impl TorClient {
         }
         
         Ok(client)
+    }
+    
+    /// Bootstrap the client by fetching consensus
+    pub async fn bootstrap(&self) -> Result<()> {
+        self.log("Bootstrapping Tor client...", LogType::Info);
+        
+        // Ensure channel is established
+        let channel_guard = self.channel.read().await;
+        if channel_guard.is_none() {
+            drop(channel_guard);
+            self.establish_channel().await?;
+        } else {
+            drop(channel_guard);
+        }
+        
+        // Get channel
+        let channel_guard = self.channel.read().await;
+        let channel = channel_guard.as_ref()
+            .ok_or_else(|| TorError::Internal("Channel not established".to_string()))?
+            .clone();
+        drop(channel_guard);
+        
+        // Fetch consensus
+        self.log("Fetching consensus...", LogType::Info);
+        self.directory_manager.fetch_and_process_consensus(channel).await?;
+        self.log("Consensus fetched successfully", LogType::Success);
+        
+        Ok(())
     }
     
     /// Make a one-time fetch request through Tor with a temporary circuit
@@ -183,7 +217,7 @@ impl TorClient {
         }
         
         // Clean up circuits
-        let mut circuit_manager = self.circuit_manager.write().await;
+        let circuit_manager = self.circuit_manager.write().await;
         if let Err(e) = circuit_manager.cleanup_circuits().await {
             warn!("Error during circuit cleanup: {}", e);
         }
@@ -313,6 +347,7 @@ impl Clone for TorClient {
         Self {
             options: self.options.clone(),
             circuit_manager: self.circuit_manager.clone(),
+            directory_manager: self.directory_manager.clone(),
             http_client: self.http_client.clone(),
             is_initialized: self.is_initialized.clone(),
             channel: self.channel.clone(),

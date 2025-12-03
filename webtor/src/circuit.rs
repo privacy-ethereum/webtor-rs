@@ -5,7 +5,7 @@ use crate::relay::{Relay, RelayManager};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, info, error};
 use tor_proto::{ClientTunnel, CellCount, FlowCtrlParameters};
 use tor_proto::circuit::CircParameters;
 use tor_proto::client::circuit::TimeoutEstimator;
@@ -34,7 +34,7 @@ pub struct Circuit {
     pub created_at: Instant,
     pub last_used: Instant,
     pub relays: Vec<Relay>,
-    pub(crate) internal_circuit: Option<ClientTunnel>,
+    pub(crate) internal_circuit: Option<Arc<ClientTunnel>>,
     _private: (),
 }
 
@@ -52,7 +52,7 @@ impl std::fmt::Debug for Circuit {
 }
 
 impl Circuit {
-    pub fn new(id: String, internal_circuit: Option<ClientTunnel>) -> Self {
+    pub fn new(id: String, internal_circuit: Option<Arc<ClientTunnel>>) -> Self {
         let now = Instant::now();
         Self {
             id,
@@ -91,7 +91,7 @@ impl Circuit {
 }
 
 // Helper to create default circuit parameters
-fn make_circ_params() -> Result<CircParameters> {
+pub(crate) fn make_circ_params() -> Result<CircParameters> {
     // 1. Fixed Window Params (Fallback)
     let fixed_window_params = FixedWindowParamsBuilder::default()
         .circ_window_start(1000)
@@ -142,7 +142,7 @@ fn make_circ_params() -> Result<CircParameters> {
     Ok(CircParameters::new(true, ccontrol, flow_ctrl))
 }
 
-struct SimpleTimeoutEstimator;
+pub(crate) struct SimpleTimeoutEstimator;
 impl TimeoutEstimator for SimpleTimeoutEstimator {
     fn circuit_build_timeout(&self, _length: usize) -> Duration {
         Duration::from_secs(60)
@@ -158,10 +158,10 @@ pub struct CircuitManager {
 }
 
 impl CircuitManager {
-    pub fn new(relay_manager: RelayManager, channel: Arc<RwLock<Option<Arc<Channel>>>>) -> Self {
+    pub fn new(relay_manager: Arc<RwLock<RelayManager>>, channel: Arc<RwLock<Option<Arc<Channel>>>>) -> Self {
         Self {
             circuits: Arc::new(RwLock::new(Vec::new())),
-            relay_manager: Arc::new(RwLock::new(relay_manager)),
+            relay_manager,
             channel,
         }
     }
@@ -262,7 +262,7 @@ impl CircuitManager {
             
         info!("Circuit established successfully");
 
-        let mut circuit = Circuit::new(circuit_id.clone(), Some(tunnel));
+        let mut circuit = Circuit::new(circuit_id.clone(), Some(Arc::new(tunnel)));
         
         // Store relays
         circuit.relays = vec![bridge_relay, middle, exit];
@@ -421,7 +421,7 @@ mod tests {
             create_test_relay("relay3", vec![flags::FAST, flags::STABLE, flags::EXIT]),
         ];
         
-        let relay_manager = RelayManager::new(relays);
+        let relay_manager = Arc::new(RwLock::new(RelayManager::new(relays)));
         // Create empty channel for testing
         let channel = Arc::new(RwLock::new(None));
         let circuit_manager = CircuitManager::new(relay_manager, channel);

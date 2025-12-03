@@ -3,8 +3,8 @@
 use crate::error::{Result, TorError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use tracing::{debug, info, warn};
-use tor_linkspec::{OwnedChanTarget, OwnedCircTarget, OwnedChanTargetBuilder};
+use tracing::{debug, info};
+use tor_linkspec::OwnedCircTarget;
 use tor_llcrypto::pk::{rsa::RsaIdentity, ed25519::Ed25519Identity, curve25519::PublicKey as Curve25519PublicKey};
 use tor_protover::Protocols;
 use std::str::FromStr;
