@@ -52,33 +52,63 @@ client.close().await;
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Application Layer                             │
-│                    (TorClient, HTTP requests)                        │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                         Tor Protocol                                 │
-│           (tor-proto: Channel, Circuit, Stream)                      │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-              ┌──────────────┴──────────────┐
-              │                             │
-              ▼                             ▼
-┌─────────────────────────┐   ┌─────────────────────────┐
-│     Snowflake           │   │      WebTunnel          │
-│   (WASM only)           │   │  (WASM + Native)        │
-├─────────────────────────┤   ├─────────────────────────┤
-│ WebRTC DataChannel      │   │ HTTPS + HTTP Upgrade    │
-│         ↓               │   │         ↓               │
-│ Turbo (framing)         │   │ TLS (SubtleCrypto)      │
-│         ↓               │   │         ↓               │
-│ KCP (reliability)       │   │ TCP/WebSocket           │
-│         ↓               │   └─────────────────────────┘
-│ SMUX (multiplexing)     │
-└─────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph App["Application Layer"]
+        TC[TorClient]
+        HTTP[HTTP Requests]
+    end
+    
+    subgraph TorProto["Tor Protocol (tor-proto)"]
+        Channel[Channel]
+        Circuit[Circuit]
+        Stream[Stream]
+    end
+    
+    subgraph Transports["Transport Layer"]
+        subgraph Snowflake["Snowflake (WASM only)"]
+            WebRTC[WebRTC DataChannel]
+            Turbo[Turbo - framing]
+            KCP[KCP - reliability]
+            SMUX[SMUX - multiplexing]
+        end
+        
+        subgraph WebTunnel["WebTunnel (WASM + Native)"]
+            HTTPS[HTTPS + HTTP Upgrade]
+            TLS[TLS - SubtleCrypto]
+            TCP[TCP/WebSocket]
+        end
+    end
+    
+    subgraph Network["Network"]
+        Broker[Snowflake Broker]
+        Proxies[Volunteer Proxies]
+        Bridge[Tor Bridge]
+        Relays[Tor Relays]
+        Exit[Exit Relay]
+    end
+    
+    TC --> HTTP
+    HTTP --> Channel
+    Channel --> Circuit
+    Circuit --> Stream
+    
+    Stream --> WebRTC
+    Stream --> HTTPS
+    
+    WebRTC --> Turbo
+    Turbo --> KCP
+    KCP --> SMUX
+    SMUX --> Broker
+    Broker --> Proxies
+    Proxies --> Bridge
+    
+    HTTPS --> TLS
+    TLS --> TCP
+    TCP --> Bridge
+    
+    Bridge --> Relays
+    Relays --> Exit
 ```
 
 ## Transports
