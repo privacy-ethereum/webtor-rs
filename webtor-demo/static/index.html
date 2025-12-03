@@ -268,17 +268,25 @@
             align-items: center;
         }
 
-        .toggle-label {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 12px;
+        .toggle-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
             color: #a0a0a0;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
             cursor: pointer;
+            transition: all 0.2s;
         }
 
-        .toggle-label input {
-            width: auto;
+        .toggle-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .toggle-btn.active {
+            background: rgba(154, 79, 209, 0.3);
+            border-color: #9a4fd1;
+            color: #9a4fd1;
         }
 
         .log-output {
@@ -457,10 +465,7 @@
             <div class="log-header">
                 <div class="section-title" id="logsLabel">Connection Logs</div>
                 <div class="log-controls">
-                    <label class="toggle-label" for="debugToggle">
-                        <input type="checkbox" id="debugToggle" name="debug">
-                        <span>Debug</span>
-                    </label>
+                    <button id="verboseBtn" class="toggle-btn" aria-label="Toggle verbose logging" aria-pressed="false">Verbose</button>
                     <button id="clearBtn" class="secondary" style="padding: 6px 12px;" aria-label="Clear all log entries">Clear</button>
                 </div>
             </div>
@@ -538,7 +543,9 @@
 
             const time = document.createElement('span');
             time.className = 'log-time';
-            time.textContent = `[${new Date().toLocaleTimeString('en-US', { hour12: false })}] `;
+            const now = new Date();
+            const ms = String(now.getMilliseconds()).padStart(3, '0');
+            time.textContent = `[${now.toLocaleTimeString('en-US', { hour12: false })}.${ms}] `;
 
             const levelSpan = document.createElement('span');
             let levelClass = 'log-info';
@@ -611,7 +618,7 @@
             const url1Input = document.getElementById('url1');
             const output1 = document.getElementById('output1');
             const clearBtn = document.getElementById('clearBtn');
-            const debugToggle = document.getElementById('debugToggle');
+            const verboseBtn = document.getElementById('verboseBtn');
 
             // Preset selection handler
             presetSelect.addEventListener('change', () => {
@@ -636,9 +643,13 @@
 
                 setLogCallback(logCallback);
 
-                debugToggle.addEventListener('change', (e) => {
-                    setDebugEnabled(e.target.checked);
-                    logCallback('INFO', 'demo', `Debug logging ${e.target.checked ? 'enabled' : 'disabled'}`);
+                let verboseEnabled = false;
+                verboseBtn.addEventListener('click', () => {
+                    verboseEnabled = !verboseEnabled;
+                    verboseBtn.classList.toggle('active', verboseEnabled);
+                    verboseBtn.setAttribute('aria-pressed', verboseEnabled);
+                    setDebugEnabled(verboseEnabled);
+                    logCallback('INFO', 'demo', `Verbose logging ${verboseEnabled ? 'enabled' : 'disabled'}`);
                 });
 
                 statusEl.textContent = 'Not initialized';
