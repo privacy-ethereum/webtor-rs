@@ -150,6 +150,33 @@ impl DemoApp {
             Ok(JsValue::UNDEFINED)
         })
     }
+    
+    /// Get circuit relay information
+    #[wasm_bindgen(js_name = getCircuitRelays)]
+    pub fn get_circuit_relays(&self) -> js_sys::Promise {
+        let app = self.clone();
+
+        future_to_promise(async move {
+            let client = lock_or_recover(&app.tor_client).clone()
+                .ok_or_else(|| JsValue::from_str("TorClient not open"))?;
+
+            match client.get_circuit_relays_rust().await {
+                Some(relays) => {
+                    let js_array = js_sys::Array::new();
+                    for relay in relays {
+                        let obj = js_sys::Object::new();
+                        js_sys::Reflect::set(&obj, &"role".into(), &JsValue::from_str(&relay.role))?;
+                        js_sys::Reflect::set(&obj, &"nickname".into(), &JsValue::from_str(&relay.nickname))?;
+                        js_sys::Reflect::set(&obj, &"address".into(), &JsValue::from_str(&relay.address))?;
+                        js_sys::Reflect::set(&obj, &"fingerprint".into(), &JsValue::from_str(&relay.fingerprint))?;
+                        js_array.push(&obj);
+                    }
+                    Ok(js_array.into())
+                }
+                None => Ok(JsValue::NULL)
+            }
+        })
+    }
 }
 
 // Internal helpers

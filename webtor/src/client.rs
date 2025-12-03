@@ -224,6 +224,12 @@ impl TorClient {
         "Ready".to_string()
     }
     
+    /// Get relay information from the current circuit
+    pub async fn get_circuit_relays(&self) -> Option<Vec<crate::circuit::CircuitRelayInfo>> {
+        let circuit_manager = self.circuit_manager.read().await;
+        circuit_manager.get_circuit_relays().await
+    }
+    
     /// Ensure the client is ready for making requests
     pub async fn ensure_ready(&self) -> Result<()> {
         // Establish channel if not already done

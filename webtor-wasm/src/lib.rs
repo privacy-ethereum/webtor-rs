@@ -329,6 +329,36 @@ impl TorClient {
         })
     }
     
+    /// Get circuit relay information
+    #[wasm_bindgen(js_name = getCircuitRelays)]
+    pub fn get_circuit_relays(&self) -> js_sys::Promise {
+        let client = match &self.inner {
+            Some(client) => client.clone(),
+            None => {
+                return future_to_promise(async move {
+                    Ok(JsValue::NULL)
+                });
+            }
+        };
+        
+        future_to_promise(async move {
+            match client.get_circuit_relays().await {
+                Some(relays) => {
+                    let js_relays: Vec<JsCircuitRelay> = relays.into_iter().map(|r| {
+                        JsCircuitRelay {
+                            role: r.role,
+                            nickname: r.nickname,
+                            address: r.address,
+                            fingerprint: r.fingerprint,
+                        }
+                    }).collect();
+                    Ok(serde_wasm_bindgen::to_value(&js_relays).unwrap_or(JsValue::NULL))
+                }
+                None => Ok(JsValue::NULL)
+            }
+        })
+    }
+    
     /// Close the Tor client
     #[wasm_bindgen(js_name = close)]
     pub fn close(&mut self) -> js_sys::Promise {
@@ -426,6 +456,29 @@ impl TorClient {
     }
 }
 
+/// Simple circuit relay info for internal use (not WASM-bound)
+pub struct CircuitRelayInfoSimple {
+    pub role: String,
+    pub nickname: String,
+    pub address: String,
+    pub fingerprint: String,
+}
+
+// Non-wasm_bindgen impl block for methods that return non-WASM types
+impl TorClient {
+    pub async fn get_circuit_relays_rust(&self) -> Option<Vec<CircuitRelayInfoSimple>> {
+        let client = self.inner.as_ref()?;
+        client.get_circuit_relays().await.map(|relays| {
+            relays.into_iter().map(|r| CircuitRelayInfoSimple {
+                role: r.role,
+                nickname: r.nickname,
+                address: r.address,
+                fingerprint: r.fingerprint,
+            }).collect()
+        })
+    }
+}
+
 /// JavaScript-friendly HTTP response
 #[wasm_bindgen]
 pub struct JsHttpResponse {
@@ -514,6 +567,15 @@ impl JsCircuitStatus {
     pub fn is_healthy(&self) -> bool {
         self.is_healthy
     }
+}
+
+/// JavaScript-friendly circuit relay info
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct JsCircuitRelay {
+    pub role: String,
+    pub nickname: String,
+    pub address: String,
+    pub fingerprint: String,
 }
 
 /// Custom tracing layer that forwards logs to JavaScript
