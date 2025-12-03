@@ -246,10 +246,11 @@ impl CircuitManager {
         // We don't have the real address easily accessible in string format from OwnedChanTarget without some work,
         // or the ntor key if it wasn't known.
         // For visual consistency in the circuit list, we create a placeholder if needed.
+        // For Snowflake, we use WebRTC so there's no traditional IP address.
         let bridge_relay = Relay::new(
             bridge_fingerprint.clone(),
-            "Bridge".to_string(),
-            "0.0.0.0".to_string(), // Placeholder
+            "Snowflake".to_string(), // More meaningful name for the proxy
+            "0.0.0.0".to_string(), // Placeholder - will be shown as "Snowflake (WebRTC)" in UI
             0,
             std::collections::HashSet::new(),
             "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
@@ -382,6 +383,45 @@ impl CircuitManager {
         relay_manager.update_relays(new_relays);
     }
     
+    /// Synchronous version of update_relays for use when we already have a mutable reference
+    pub fn update_relay_list(&mut self, new_relays: Vec<crate::relay::Relay>) {
+        if let Ok(mut relay_manager) = self.relay_manager.try_write() {
+            relay_manager.update_relays(new_relays);
+        }
+    }
+    
+    /// Get relay information from the first ready circuit
+    pub async fn get_circuit_relays(&self) -> Option<Vec<CircuitRelayInfo>> {
+        let circuits = self.circuits.read().await;
+        for circuit in circuits.iter() {
+            let circuit_read = circuit.read().await;
+            if circuit_read.is_ready() && !circuit_read.relays.is_empty() {
+                return Some(circuit_read.relays.iter().enumerate().map(|(idx, relay)| {
+                    let role = match idx {
+                        0 => "Bridge",
+                        1 => "Middle",
+                        2 => "Exit",
+                        _ => "Unknown",
+                    };
+                    // For Snowflake bridges, the address is typically 0.0.0.0 since
+                    // we connect via WebRTC - show something more meaningful
+                    let address = if idx == 0 && (relay.address == "0.0.0.0" || relay.address.starts_with("0.0.0.0:")) {
+                        "Snowflake (WebRTC)".to_string()
+                    } else {
+                        relay.address.clone()
+                    };
+                    CircuitRelayInfo {
+                        role: role.to_string(),
+                        nickname: relay.nickname.clone(),
+                        address,
+                        fingerprint: relay.fingerprint.chars().take(16).collect(),
+                    }
+                }).collect());
+            }
+        }
+        None
+    }
+
     /// Clean up failed and old circuits
     pub async fn cleanup_circuits(&self) -> Result<()> {
         let mut circuits = self.circuits.write().await;
@@ -427,6 +467,15 @@ impl CircuitManager {
         
         Ok(())
     }
+}
+
+/// Circuit relay information for display
+#[derive(Debug, Clone)]
+pub struct CircuitRelayInfo {
+    pub role: String,
+    pub nickname: String,
+    pub address: String,
+    pub fingerprint: String,
 }
 
 /// Circuit status information

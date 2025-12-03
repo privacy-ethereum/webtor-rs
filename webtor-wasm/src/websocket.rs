@@ -144,11 +144,27 @@ impl WasmWebSocketConnection {
     
     pub fn close(&mut self) {
         console_log!("Closing WebSocket connection");
+        // Clear handlers BEFORE closing to prevent "closure invoked after being dropped" errors
+        // The closures were forgotten, but JavaScript still has references to them
+        self.websocket.set_onmessage(None);
+        self.websocket.set_onerror(None);
+        self.websocket.set_onclose(None);
+        self.websocket.set_onopen(None);
         let _ = self.websocket.close();
     }
     
     pub fn is_open(&self) -> bool {
         self.websocket.ready_state() == WebSocket::OPEN
+    }
+}
+
+impl Drop for WasmWebSocketConnection {
+    fn drop(&mut self) {
+        // Clear handlers when dropped to prevent "closure invoked after being dropped" errors
+        self.websocket.set_onmessage(None);
+        self.websocket.set_onerror(None);
+        self.websocket.set_onclose(None);
+        self.websocket.set_onopen(None);
     }
 }
 

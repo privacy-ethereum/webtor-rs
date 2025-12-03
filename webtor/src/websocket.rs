@@ -119,6 +119,18 @@ mod wasm {
         }
     }
 
+    impl Drop for WebSocketStream {
+        fn drop(&mut self) {
+            // Clear handlers BEFORE drop to prevent "closure invoked after being dropped" errors
+            self.socket.set_onmessage(None);
+            self.socket.set_onerror(None);
+            self.socket.set_onclose(None);
+            self.socket.set_onopen(None);
+            // Close the socket
+            let _ = self.socket.close();
+        }
+    }
+
     impl AsyncRead for WebSocketStream {
         fn poll_read(
             mut self: Pin<&mut Self>,

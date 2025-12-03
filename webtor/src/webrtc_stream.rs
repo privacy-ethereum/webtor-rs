@@ -286,6 +286,19 @@ mod wasm {
         result.map_err(TorError::Network)
     }
 
+    impl Drop for WebRtcStream {
+        fn drop(&mut self) {
+            // Clear handlers BEFORE drop to prevent "closure invoked after being dropped" errors
+            self.data_channel.set_onmessage(None);
+            self.data_channel.set_onerror(None);
+            self.data_channel.set_onclose(None);
+            self.data_channel.set_onopen(None);
+            // Also close the connection
+            self.data_channel.close();
+            self.peer_connection.close();
+        }
+    }
+
     impl AsyncRead for WebRtcStream {
         fn poll_read(
             mut self: Pin<&mut Self>,

@@ -400,6 +400,81 @@
             font-style: italic;
         }
 
+        /* Circuit Display */
+        .circuit-display {
+            display: none;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-top: 12px;
+        }
+
+        .circuit-display.visible {
+            display: block;
+        }
+
+        .circuit-path {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .circuit-relay {
+            flex: 1;
+            min-width: 120px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 6px;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .circuit-target {
+            background: rgba(59, 130, 246, 0.2);
+            border: 1px solid rgba(59, 130, 246, 0.4);
+        }
+
+        .circuit-target .circuit-relay-role {
+            color: #3b82f6;
+        }
+
+        .circuit-relay-role {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #9a4fd1;
+            margin-bottom: 4px;
+        }
+
+        .circuit-relay-nickname {
+            font-weight: 600;
+            color: #e8e8e8;
+            font-size: 12px;
+            margin-bottom: 2px;
+        }
+
+        .circuit-relay-address {
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 11px;
+            color: #808080;
+        }
+
+        .circuit-arrow {
+            color: #9a4fd1;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        @media (max-width: 600px) {
+            .circuit-path {
+                flex-direction: column;
+            }
+            .circuit-arrow {
+                transform: rotate(90deg);
+            }
+        }
+
         .site-footer {
             background: rgba(0, 0, 0, 0.5);
             border-top: 1px solid rgba(255, 255, 255, 0.1);
@@ -495,6 +570,13 @@
                     <button id="openBtn" aria-label="Open and initialize Tor client connection">Open TorClient</button>
                     <button id="closeBtn" class="secondary" disabled aria-label="Close Tor client connection">Close</button>
                     <button id="updateBtn" class="secondary" disabled aria-label="Refresh the current circuit">Refresh Circuit</button>
+                </div>
+
+                <!-- Circuit Path Display -->
+                <div class="circuit-display" id="circuitDisplay" aria-label="Current circuit path">
+                    <div class="circuit-path" id="circuitPath">
+                        <!-- Relay nodes will be populated by JavaScript -->
+                    </div>
                 </div>
             </div>
 
@@ -606,7 +688,7 @@
     <!-- Site Footer -->
     <footer class="site-footer">
         <div class="site-footer-inner">
-            <span>v0.1.0</span>
+            <span>v0.2.0</span>
             <div class="footer-links">
                 <a href="https://github.com/voltrevo/webtor-rs" target="_blank" rel="noopener noreferrer">GitHub</a>
                 <a href="https://github.com/voltrevo/webtor-rs/blob/main/docs/FEATURES.md" target="_blank" rel="noopener noreferrer">Features</a>
@@ -883,6 +965,72 @@
                 statusEl.textContent = 'Not initialized';
                 statusDot.className = 'status-dot';
 
+                const circuitDisplay = document.getElementById('circuitDisplay');
+                const circuitPath = document.getElementById('circuitPath');
+
+                // Function to update circuit display
+                async function updateCircuitDisplay(appInstance, targetUrl = null) {
+                    if (!appInstance) {
+                        circuitDisplay.classList.remove('visible');
+                        return;
+                    }
+                    try {
+                        const relays = await appInstance.getCircuitRelays();
+                        if (relays && relays.length > 0) {
+                            circuitPath.innerHTML = '';
+                            relays.forEach((relay, index) => {
+                                // Add relay node
+                                const node = document.createElement('div');
+                                node.className = 'circuit-relay';
+                                node.innerHTML = `
+                                    <div class="circuit-relay-role">${escapeHtml(relay.role)}</div>
+                                    <div class="circuit-relay-nickname">${escapeHtml(relay.nickname)}</div>
+                                    <div class="circuit-relay-address">${escapeHtml(relay.address)}</div>
+                                `;
+                                circuitPath.appendChild(node);
+
+                                // Add arrow between nodes
+                                const arrow = document.createElement('div');
+                                arrow.className = 'circuit-arrow';
+                                arrow.textContent = '\u2192'; // Unicode arrow
+                                arrow.setAttribute('aria-hidden', 'true');
+                                circuitPath.appendChild(arrow);
+                            });
+
+                            // Add target node (destination website)
+                            const targetNode = document.createElement('div');
+                            targetNode.className = 'circuit-relay circuit-target';
+                            let targetHost = 'Internet';
+                            if (targetUrl) {
+                                try {
+                                    targetHost = new URL(targetUrl).hostname;
+                                } catch (e) {
+                                    targetHost = targetUrl;
+                                }
+                            }
+                            targetNode.innerHTML = `
+                                <div class="circuit-relay-role">Target</div>
+                                <div class="circuit-relay-nickname">${escapeHtml(targetHost)}</div>
+                                <div class="circuit-relay-address"></div>
+                            `;
+                            circuitPath.appendChild(targetNode);
+
+                            circuitDisplay.classList.add('visible');
+                        } else {
+                            circuitDisplay.classList.remove('visible');
+                        }
+                    } catch (e) {
+                        console.warn('Failed to get circuit relays:', e);
+                    }
+                }
+
+                // Helper to escape HTML
+                function escapeHtml(text) {
+                    const div = document.createElement('div');
+                    div.textContent = text;
+                    return div.innerHTML;
+                }
+
                 let app = null;
 
                 openBtn.addEventListener('click', async () => {
@@ -901,6 +1049,8 @@
                                 btn1.disabled = false;
                                 btnIsolated.disabled = false;
                                 updateBtn.disabled = false;
+                                // Update circuit display when ready - show current target URL
+                                updateCircuitDisplay(app, url1.value);
                             } else if (status.includes('Error') || status.includes('Failed')) {
                                 statusDot.className = 'status-dot error';
                             } else {
@@ -936,6 +1086,8 @@
                     updateBtn.disabled = true;
                     btn1.disabled = true;
                     btnIsolated.disabled = true;
+                    // Hide circuit display
+                    circuitDisplay.classList.remove('visible');
                 });
 
                 updateBtn.addEventListener('click', async () => {
@@ -944,6 +1096,8 @@
                         updateBtn.setAttribute('aria-busy', 'true');
                         try {
                             await app.triggerCircuitUpdate();
+                            // Update circuit display after refresh - show current target URL
+                            updateCircuitDisplay(app, url1.value);
                         } catch (e) {
                             logCallback('ERROR', 'circuit', 'Circuit update failed: ' + (e.message || e));
                         }
