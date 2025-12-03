@@ -29,14 +29,8 @@ jobs:
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
       - name: Fetch fresh consensus (if not recent)
         run: |
-          # Only fetch if cached files are missing or older than 12 hours
           if [ ! -f webtor/src/cached/consensus.txt.gz ] || \
              [ $(find webtor/src/cached/consensus.txt.gz -mmin +720 2>/dev/null | wc -l) -gt 0 ]; then
             chmod +x scripts/fetch-consensus.sh
@@ -45,16 +39,13 @@ jobs:
             echo "Using existing cached consensus"
           fi
 
-      - name: Build WASM module
-        run: wasm-pack build webtor-wasm --target web --out-dir ../example/pkg
+      - name: Build WASM demo
+        run: wasm-pack build webtor-demo --target web --out-dir pkg --release
 
-      - name: Install dependencies
-        working-directory: ./example
-        run: npm install
-
-      - name: Build example app
-        working-directory: ./example
-        run: npm run build
+      - name: Prepare static files
+        run: |
+          mkdir -p webtor-demo/static/pkg
+          cp -r webtor-demo/pkg/* webtor-demo/static/pkg/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -62,7 +53,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./example/dist
+          path: ./webtor-demo/static
 
   deploy:
     environment:
