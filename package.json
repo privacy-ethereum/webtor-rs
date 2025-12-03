@@ -9,11 +9,14 @@
     "serve:node": "cd webtor-demo/static && npx serve -s . -p 8000",
     "test": "cargo test --workspace",
     "test:wasm": "wasm-pack test --headless --firefox",
+    "test:headless": "node test-headless.mjs",
+    "test:headed": "node test-headless.mjs --headed",
     "clean": "cargo clean && rm -rf webtor-wasm/pkg webtor-demo/pkg",
     "dev": "cargo watch -s 'npm run build:wasm'"
   },
   "devDependencies": {
-    "serve": "^14.2.0"
+    "serve": "^14.2.0",
+    "playwright": "^1.40.0"
   },
   "keywords": [
     "tor",

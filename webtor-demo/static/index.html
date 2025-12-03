@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss://snowflake.torproject.net https:; img-src 'self' data:; font-src 'self'; base-uri 'self'; form-action 'none';">
     <title>Webtor-rs - Tor Client in Rust/WASM</title>
     <link rel="icon" href="tor.svg" type="image/svg+xml">
     <style>
@@ -56,7 +57,7 @@
         }
 
         .subtitle {
-            color: #888;
+            color: #b0b0b0;
             font-size: 13px;
             margin: 4px 0 0 0;
         }
@@ -143,6 +144,11 @@
             cursor: not-allowed;
         }
 
+        button:focus-visible {
+            outline: 2px solid #fff;
+            outline-offset: 2px;
+        }
+
         button.secondary {
             background: rgba(255, 255, 255, 0.1);
         }
@@ -155,7 +161,7 @@
         label {
             display: block;
             font-size: 12px;
-            color: #aaa;
+            color: #c0c0c0;
             margin-bottom: 6px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
@@ -169,11 +175,12 @@
             font-size: 13px;
             background: rgba(0, 0, 0, 0.3);
             color: #e8e8e8;
-            transition: border-color 0.2s;
+            transition: border-color 0.2s, outline 0.2s;
         }
 
         input:focus, select:focus {
-            outline: none;
+            outline: 2px solid #9a4fd1;
+            outline-offset: 2px;
             border-color: #9a4fd1;
         }
 
@@ -233,8 +240,9 @@
             max-height: 120px;
             overflow-y: auto;
             white-space: pre-wrap;
-            word-break: break-all;
-            color: #888;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+            color: #a0a0a0;
         }
 
         .output-box.success { color: #28a745; }
@@ -265,7 +273,7 @@
             align-items: center;
             gap: 6px;
             font-size: 12px;
-            color: #888;
+            color: #a0a0a0;
             cursor: pointer;
         }
 
@@ -289,11 +297,12 @@
             margin-bottom: 2px;
         }
 
-        .log-time { color: #666; }
+        .log-time { color: #808080; }
         .log-info { color: #28a745; }
         .log-warn { color: #ffc107; }
         .log-error { color: #dc3545; }
-        .log-debug { color: #6c757d; }
+        .log-debug { color: #808080; }
+        .log-target { color: #b0b0b0; }
 
         .features-grid {
             display: grid;
@@ -318,7 +327,12 @@
         .feature-card p {
             margin: 0;
             font-size: 11px;
-            color: #888;
+            color: #a0a0a0;
+        }
+
+        .empty-state {
+            color: #606060;
+            font-style: italic;
         }
 
         @media (max-width: 900px) {
@@ -329,35 +343,39 @@
             .log-output {
                 min-height: 200px;
             }
+
+            h1 { font-size: 20px; }
+            .subtitle { font-size: 12px; }
+            button { padding: 8px 14px; font-size: 12px; }
         }
     </style>
 </head>
 <body>
     <div class="main-container">
         <!-- Left Panel - Controls -->
-        <div class="panel">
+        <div class="panel" role="main">
             <div class="header">
-                <img src="tor.svg" alt="Tor" class="logo">
+                <img src="tor.svg" alt="Webtor-rs onion logo" class="logo">
                 <div>
                     <h1>Webtor-rs</h1>
                     <p class="subtitle">Tor client in Rust/WASM</p>
                 </div>
             </div>
 
-            <div class="warning-banner">
+            <div class="warning-banner" role="alert">
                 <strong>Experimental:</strong> Use at your own risk. TLS 1.3 only.
             </div>
 
             <div class="section">
-                <div class="section-title">Connection</div>
-                <div class="status-bar">
-                    <div class="status-dot" id="statusDot"></div>
+                <div class="section-title" id="connectionLabel">Connection</div>
+                <div class="status-bar" role="status" aria-live="polite" aria-atomic="true" aria-labelledby="connectionLabel">
+                    <div class="status-dot" id="statusDot" aria-hidden="true"></div>
                     <span id="status">Not initialized</span>
                 </div>
                 <div class="btn-group" style="margin-top: 12px;">
-                    <button id="openBtn">Open TorClient</button>
-                    <button id="closeBtn" class="secondary" disabled>Close</button>
-                    <button id="updateBtn" class="secondary" disabled>Refresh Circuit</button>
+                    <button id="openBtn" aria-label="Open and initialize Tor client connection">Open TorClient</button>
+                    <button id="closeBtn" class="secondary" disabled aria-label="Close Tor client connection">Close</button>
+                    <button id="updateBtn" class="secondary" disabled aria-label="Refresh the current circuit">Refresh Circuit</button>
                 </div>
             </div>
 
@@ -371,8 +389,8 @@
                     </div>
 
                     <div class="input-group">
-                        <label>Preset</label>
-                        <select id="presetSelect">
+                        <label for="presetSelect">Preset</label>
+                        <select id="presetSelect" name="preset">
                             <optgroup label="Test Endpoints">
                                 <option value="https://example.com/">example.com</option>
                                 <option value="https://check.torproject.org/">Tor Check</option>
@@ -390,12 +408,12 @@
                     </div>
 
                     <div class="input-group">
-                        <label>URL</label>
-                        <input type="text" id="url1" value="https://example.com/" placeholder="https://...">
+                        <label for="url1">URL</label>
+                        <input type="url" id="url1" name="url1" value="https://example.com/" placeholder="https://..." autocomplete="url">
                     </div>
 
-                    <button id="btn1" disabled>Send Request</button>
-                    <div class="output-box" id="output1">Ready...</div>
+                    <button id="btn1" disabled aria-label="Send HTTP request using persistent circuit">Send Request</button>
+                    <div class="output-box" id="output1" role="region" aria-live="polite" aria-label="Request result">Ready...</div>
                 </div>
 
                 <div class="request-section">
@@ -405,29 +423,29 @@
                     </div>
 
                     <div class="input-group">
-                        <label>URL</label>
-                        <input type="text" id="isolatedUrl" value="https://api.ipify.org?format=json" placeholder="https://...">
+                        <label for="isolatedUrl">URL</label>
+                        <input type="url" id="isolatedUrl" name="isolatedUrl" value="https://api.ipify.org?format=json" placeholder="https://..." autocomplete="url">
                     </div>
 
-                    <button id="btnIsolated" disabled>Send Isolated</button>
-                    <div class="output-box" id="outputIsolated">Ready...</div>
+                    <button id="btnIsolated" disabled aria-label="Send HTTP request using a new isolated circuit">Send Isolated</button>
+                    <div class="output-box" id="outputIsolated" role="region" aria-live="polite" aria-label="Isolated request result">Ready...</div>
                 </div>
             </div>
 
-            <div class="features-grid">
-                <div class="feature-card">
+            <div class="features-grid" role="list" aria-label="Features">
+                <div class="feature-card" role="listitem">
                     <h4>Snowflake</h4>
                     <p>WebRTC-based transport</p>
                 </div>
-                <div class="feature-card">
+                <div class="feature-card" role="listitem">
                     <h4>3-Hop Circuits</h4>
                     <p>Guard, Middle, Exit</p>
                 </div>
-                <div class="feature-card">
+                <div class="feature-card" role="listitem">
                     <h4>Auto Refresh</h4>
                     <p>Circuit rotation</p>
                 </div>
-                <div class="feature-card">
+                <div class="feature-card" role="listitem">
                     <h4>TLS 1.3</h4>
                     <p>SubtleCrypto</p>
                 </div>
@@ -435,26 +453,55 @@
         </div>
 
         <!-- Right Panel - Logs -->
-        <div class="panel log-panel">
+        <div class="panel log-panel" role="complementary">
             <div class="log-header">
-                <div class="section-title">Connection Logs</div>
+                <div class="section-title" id="logsLabel">Connection Logs</div>
                 <div class="log-controls">
-                    <label class="toggle-label">
-                        <input type="checkbox" id="debugToggle">
-                        Debug
+                    <label class="toggle-label" for="debugToggle">
+                        <input type="checkbox" id="debugToggle" name="debug">
+                        <span>Debug</span>
                     </label>
-                    <button id="clearBtn" class="secondary" style="padding: 6px 12px;">Clear</button>
+                    <button id="clearBtn" class="secondary" style="padding: 6px 12px;" aria-label="Clear all log entries">Clear</button>
                 </div>
             </div>
-            <div class="log-output" id="output"></div>
+            <div class="log-output" id="output" role="log" aria-live="off" aria-labelledby="logsLabel">
+                <div class="empty-state">Logs will appear here. Click "Open TorClient" to start.</div>
+            </div>
         </div>
     </div>
 
     <script type="module">
         import init, { DemoApp, setLogCallback, setDebugEnabled } from './pkg/webtor_demo.js';
 
-        // Known TLS 1.2 only sites
+        // Constants
+        const MAX_LOG_ENTRIES = 1000;
         const TLS12_SITES = ['httpbin.org', 'httpbin.com'];
+
+        // URL validation
+        function validateUrl(url) {
+            if (!url || url.trim() === '') {
+                return { valid: false, error: 'URL cannot be empty' };
+            }
+            try {
+                const parsed = new URL(url);
+                if (!['https:', 'http:'].includes(parsed.protocol)) {
+                    return { valid: false, error: 'Only HTTP/HTTPS protocols are supported' };
+                }
+                // Block private IP ranges (SSRF protection)
+                const hostname = parsed.hostname;
+                if (hostname === 'localhost' ||
+                    hostname === '127.0.0.1' ||
+                    hostname.startsWith('192.168.') ||
+                    hostname.startsWith('10.') ||
+                    /^172\.(1[6-9]|2[0-9]|3[01])\./.test(hostname) ||
+                    hostname === '0.0.0.0') {
+                    return { valid: false, error: 'Private/local addresses are not allowed' };
+                }
+                return { valid: true, hostname };
+            } catch (e) {
+                return { valid: false, error: 'Invalid URL format' };
+            }
+        }
 
         function isTls12Site(url) {
             try {
@@ -467,16 +514,33 @@
 
         function formatTlsError(url, errorMessage) {
             if (errorMessage.includes('close_notify') || errorMessage.includes('TLS handshake failed')) {
-                const hostname = new URL(url).hostname;
-                return `TLS Error: ${hostname} requires TLS 1.2 which is not supported.\n\nWebtor-rs only supports TLS 1.3. Try a different site like example.com, google.com, or cloudflare.com.`;
+                try {
+                    const hostname = new URL(url).hostname;
+                    return `TLS Error: ${hostname} likely requires TLS 1.2 which is not supported.\n\nWebtor-rs only supports TLS 1.3.\n\nTry: example.com, google.com, cloudflare.com`;
+                } catch {
+                    return errorMessage;
+                }
             }
             return errorMessage;
         }
 
-        function formatLogEntry(level, target, message) {
-            const time = new Date().toLocaleTimeString('en-US', { hour12: false });
-            const shortTarget = target.split('::').pop() || target;
+        // Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
 
+        // Safe log entry creation (no innerHTML with user data)
+        function createLogEntry(level, target, message) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+
+            const time = document.createElement('span');
+            time.className = 'log-time';
+            time.textContent = `[${new Date().toLocaleTimeString('en-US', { hour12: false })}] `;
+
+            const levelSpan = document.createElement('span');
             let levelClass = 'log-info';
             let prefix = 'INFO';
             switch (level) {
@@ -485,20 +549,55 @@
                 case 'DEBUG': levelClass = 'log-debug'; prefix = 'DBG '; break;
                 case 'TRACE': levelClass = 'log-debug'; prefix = 'TRC '; break;
             }
+            levelSpan.className = levelClass;
+            levelSpan.textContent = prefix + ' ';
 
-            return `<span class="log-time">[${time}]</span> <span class="${levelClass}">${prefix}</span> <span style="color:#aaa">[${shortTarget}]</span> ${message}`;
+            const targetSpan = document.createElement('span');
+            targetSpan.className = 'log-target';
+            const shortTarget = target.split('::').pop() || target;
+            targetSpan.textContent = `[${shortTarget}] `;
+
+            const messageSpan = document.createElement('span');
+            messageSpan.textContent = message;
+
+            entry.appendChild(time);
+            entry.appendChild(levelSpan);
+            entry.appendChild(targetSpan);
+            entry.appendChild(messageSpan);
+
+            return entry;
         }
 
         function logCallback(level, target, message) {
             const output = document.getElementById('output');
-            if (output) {
-                const entry = document.createElement('div');
-                entry.className = 'log-entry';
-                entry.innerHTML = formatLogEntry(level, target, message);
-                output.appendChild(entry);
-                output.scrollTop = output.scrollHeight;
+            if (!output) return;
+
+            // Remove empty state message on first log
+            const emptyState = output.querySelector('.empty-state');
+            if (emptyState) {
+                emptyState.remove();
             }
+
+            // Enforce max log entries to prevent memory bloat
+            while (output.children.length >= MAX_LOG_ENTRIES) {
+                output.removeChild(output.firstChild);
+            }
+
+            const entry = createLogEntry(level, target, message);
+            output.appendChild(entry);
+            output.scrollTop = output.scrollHeight;
         }
+
+        // Global error handlers
+        window.addEventListener('error', (event) => {
+            console.error('Uncaught error:', event.error);
+            logCallback('ERROR', 'global', 'Uncaught error: ' + (event.error?.message || 'Unknown error'));
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+            console.error('Unhandled promise rejection:', event.reason);
+            logCallback('ERROR', 'global', 'Unhandled rejection: ' + (event.reason?.message || event.reason || 'Unknown error'));
+        });
 
         async function run() {
             const statusEl = document.getElementById('status');
@@ -524,10 +623,14 @@
 
             // Clear logs
             clearBtn.addEventListener('click', () => {
-                document.getElementById('output').innerHTML = '';
+                const output = document.getElementById('output');
+                output.innerHTML = '<div class="empty-state">Logs cleared. Click "Open TorClient" to start.</div>';
             });
 
             try {
+                statusEl.textContent = 'Loading WASM...';
+                statusDot.className = 'status-dot loading';
+
                 await init();
                 logCallback('INFO', 'demo', 'WASM module loaded');
 
@@ -538,17 +641,20 @@
                     logCallback('INFO', 'demo', `Debug logging ${e.target.checked ? 'enabled' : 'disabled'}`);
                 });
 
+                statusEl.textContent = 'Not initialized';
+                statusDot.className = 'status-dot';
+
                 let app = null;
 
                 openBtn.addEventListener('click', async () => {
                     openBtn.disabled = true;
+                    openBtn.setAttribute('aria-busy', 'true');
                     statusEl.textContent = 'Connecting...';
                     statusDot.className = 'status-dot loading';
 
                     try {
                         app = new DemoApp();
 
-                        // Set up status callback
                         app.setStatusCallback((status) => {
                             statusEl.textContent = status;
                             if (status.includes('Ready')) {
@@ -567,15 +673,21 @@
                         closeBtn.disabled = false;
 
                     } catch (e) {
-                        statusEl.textContent = 'Error: ' + e.message;
+                        statusEl.textContent = 'Error: ' + (e.message || e);
                         statusDot.className = 'status-dot error';
                         openBtn.disabled = false;
+                        logCallback('ERROR', 'demo', 'Connection failed: ' + (e.message || e));
                     }
+                    openBtn.removeAttribute('aria-busy');
                 });
 
                 closeBtn.addEventListener('click', async () => {
                     if (app) {
-                        await app.close();
+                        try {
+                            await app.close();
+                        } catch (e) {
+                            logCallback('ERROR', 'demo', 'Close error: ' + (e.message || e));
+                        }
                         app = null;
                     }
                     statusEl.textContent = 'Not initialized';
@@ -590,11 +702,13 @@
                 updateBtn.addEventListener('click', async () => {
                     if (app) {
                         updateBtn.disabled = true;
+                        updateBtn.setAttribute('aria-busy', 'true');
                         try {
                             await app.triggerCircuitUpdate();
                         } catch (e) {
-                            logCallback('ERROR', 'demo', 'Circuit update failed: ' + e.message);
+                            logCallback('ERROR', 'demo', 'Circuit update failed: ' + (e.message || e));
                         }
+                        updateBtn.removeAttribute('aria-busy');
                         updateBtn.disabled = false;
                     }
                 });
@@ -602,16 +716,25 @@
                 btn1.addEventListener('click', async () => {
                     const url = url1Input.value;
 
-                    // Check for TLS 1.2 sites first
+                    // Validate URL
+                    const validation = validateUrl(url);
+                    if (!validation.valid) {
+                        output1.className = 'output-box error';
+                        output1.textContent = validation.error;
+                        return;
+                    }
+
+                    // Check for TLS 1.2 sites
                     if (isTls12Site(url)) {
                         output1.className = 'output-box error';
-                        output1.textContent = `This site (${new URL(url).hostname}) only supports TLS 1.2.\n\nWebtor-rs requires TLS 1.3. Try: example.com, google.com, cloudflare.com`;
+                        output1.textContent = `This site (${validation.hostname}) only supports TLS 1.2.\n\nWebtor-rs requires TLS 1.3.\n\nTry: example.com, google.com, cloudflare.com`;
                         return;
                     }
 
                     output1.className = 'output-box loading';
                     output1.textContent = 'Making request...';
                     btn1.disabled = true;
+                    btn1.setAttribute('aria-busy', 'true');
 
                     try {
                         const response = await app.get(url);
@@ -619,14 +742,23 @@
                         output1.textContent = response.substring(0, 500);
                     } catch (e) {
                         output1.className = 'output-box error';
-                        output1.textContent = formatTlsError(url, e.message);
+                        output1.textContent = formatTlsError(url, e.message || String(e));
                     }
+                    btn1.removeAttribute('aria-busy');
                     btn1.disabled = false;
                 });
 
                 btnIsolated.addEventListener('click', async () => {
                     const url = document.getElementById('isolatedUrl').value;
                     const outputIsolated = document.getElementById('outputIsolated');
+
+                    // Validate URL
+                    const validation = validateUrl(url);
+                    if (!validation.valid) {
+                        outputIsolated.className = 'output-box error';
+                        outputIsolated.textContent = validation.error;
+                        return;
+                    }
 
                     if (isTls12Site(url)) {
                         outputIsolated.className = 'output-box error';
@@ -637,6 +769,7 @@
                     outputIsolated.className = 'output-box loading';
                     outputIsolated.textContent = 'Creating isolated circuit...';
                     btnIsolated.disabled = true;
+                    btnIsolated.setAttribute('aria-busy', 'true');
 
                     try {
                         const response = await app.getIsolated(url);
@@ -644,8 +777,9 @@
                         outputIsolated.textContent = response.substring(0, 500);
                     } catch (e) {
                         outputIsolated.className = 'output-box error';
-                        outputIsolated.textContent = formatTlsError(url, e.message);
+                        outputIsolated.textContent = formatTlsError(url, e.message || String(e));
                     }
+                    btnIsolated.removeAttribute('aria-busy');
                     btnIsolated.disabled = false;
                 });
 
@@ -655,6 +789,7 @@
                 console.error('Failed to initialize:', error);
                 statusEl.textContent = 'Failed to load WASM';
                 statusDot.className = 'status-dot error';
+                logCallback('ERROR', 'demo', 'Initialization failed: ' + (error.message || error));
             }
         }
 

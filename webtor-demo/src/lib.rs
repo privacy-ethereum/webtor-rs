@@ -3,21 +3,17 @@
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::future_to_promise;
 use web_sys::console;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 // Import the webtor WASM bindings
-use webtor_wasm::{TorClient, TorClientOptions, JsHttpResponse};
+use webtor_wasm::{TorClient, TorClientOptions};
 
 // Re-export logging functions
 pub use webtor_wasm::{init as webtor_init, set_log_callback, set_debug_enabled};
 
-/// Simple callback wrapper
-#[wasm_bindgen]
-extern "C" {
-    pub type StatusCallback;
-
-    #[wasm_bindgen(method, structural)]
-    pub fn call(this: &StatusCallback, status: &str);
+/// Helper to handle mutex poisoning gracefully
+fn lock_or_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Main demo application - simplified API for JavaScript
@@ -43,7 +39,7 @@ impl DemoApp {
     /// Set a callback function for status updates
     #[wasm_bindgen(js_name = setStatusCallback)]
     pub fn set_status_callback(&self, callback: js_sys::Function) {
-        *self.status_callback.lock().unwrap() = Some(callback);
+        *lock_or_recover(&self.status_callback) = Some(callback);
     }
 
     /// Open the TorClient and wait for circuit
@@ -65,16 +61,16 @@ impl DemoApp {
             app.update_status("Creating TorClient...")?;
 
             let client = TorClient::create(options).await
-                .map_err(|e| JsValue::from_str(&format!("Failed to create TorClient: {:?}", e)))?;
+                .map_err(|e| JsValue::from_str(&format!("Failed to create TorClient: {}", e)))?;
 
             // Store client before waiting
-            *app.tor_client.lock().unwrap() = Some(client.clone());
+            *lock_or_recover(&app.tor_client) = Some(client.clone());
 
             app.update_status("Waiting for circuit...")?;
 
             // Wait for circuit
             client.wait_for_circuit_rust().await
-                .map_err(|e| JsValue::from_str(&format!("Circuit failed: {:?}", e)))?;
+                .map_err(|e| JsValue::from_str(&format!("Circuit failed: {}", e)))?;
 
             // Start status polling
             app.start_status_polling()?;
@@ -92,7 +88,7 @@ impl DemoApp {
         future_to_promise(async move {
             app.stop_status_polling()?;
 
-            if let Some(mut client) = app.tor_client.lock().unwrap().take() {
+            if let Some(mut client) = lock_or_recover(&app.tor_client).take() {
                 client.close_rust().await;
             }
 
@@ -107,11 +103,11 @@ impl DemoApp {
         let app = self.clone();
 
         future_to_promise(async move {
-            let client = app.tor_client.lock().unwrap().clone()
+            let client = lock_or_recover(&app.tor_client).clone()
                 .ok_or_else(|| JsValue::from_str("TorClient not open"))?;
 
             let response = client.fetch_rust(&url).await
-                .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+                .map_err(|e| JsValue::from_str(&format!("{}", e)))?;
 
             let text = response.text()
                 .map_err(|e| JsValue::from_str(&format!("Failed to get text: {:?}", e)))?;
@@ -127,7 +123,7 @@ impl DemoApp {
             let snowflake_url = "wss://snowflake.torproject.net/";
 
             let response = TorClient::fetch_one_time_rust(snowflake_url, &url, None, None).await
-                .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+                .map_err(|e| JsValue::from_str(&format!("{}", e)))?;
 
             let text = response.text()
                 .map_err(|e| JsValue::from_str(&format!("Failed to get text: {:?}", e)))?;
@@ -142,13 +138,13 @@ impl DemoApp {
         let app = self.clone();
 
         future_to_promise(async move {
-            let client = app.tor_client.lock().unwrap().clone()
+            let client = lock_or_recover(&app.tor_client).clone()
                 .ok_or_else(|| JsValue::from_str("TorClient not open"))?;
 
             app.update_status("Refreshing circuit...")?;
 
             client.update_circuit_rust(30000).await
-                .map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+                .map_err(|e| JsValue::from_str(&format!("{}", e)))?;
 
             app.update_status("Ready")?;
             Ok(JsValue::UNDEFINED)
@@ -159,7 +155,7 @@ impl DemoApp {
 // Internal helpers
 impl DemoApp {
     fn update_status(&self, status: &str) -> Result<(), JsValue> {
-        if let Some(callback) = self.status_callback.lock().unwrap().as_ref() {
+        if let Some(callback) = lock_or_recover(&self.status_callback).as_ref() {
             let _ = callback.call1(&JsValue::NULL, &JsValue::from_str(status));
         }
         Ok(())
@@ -175,17 +171,17 @@ impl DemoApp {
 
         let interval_id = window.set_interval_with_callback_and_timeout_and_arguments_0(
             closure.as_ref().unchecked_ref(),
-            1000,
+            2000, // Poll every 2 seconds (reduced from 1s for performance)
         )?;
 
-        *self.status_interval.lock().unwrap() = Some(interval_id);
+        *lock_or_recover(&self.status_interval) = Some(interval_id);
         closure.forget();
 
         Ok(())
     }
 
     fn stop_status_polling(&self) -> Result<(), JsValue> {
-        if let Some(interval_id) = self.status_interval.lock().unwrap().take() {
+        if let Some(interval_id) = lock_or_recover(&self.status_interval).take() {
             if let Some(window) = web_sys::window() {
                 window.clear_interval_with_handle(interval_id);
             }
@@ -194,12 +190,17 @@ impl DemoApp {
     }
 
     fn poll_status(&self) -> Result<(), JsValue> {
-        if let Some(client) = self.tor_client.lock().unwrap().clone() {
+        if let Some(client) = lock_or_recover(&self.tor_client).clone() {
             let app = self.clone();
 
             let _ = future_to_promise(async move {
-                if let Ok(status) = client.get_circuit_status_string_rust().await {
-                    let _ = app.update_status(&status);
+                match client.get_circuit_status_string_rust().await {
+                    Ok(status) => {
+                        let _ = app.update_status(&status);
+                    }
+                    Err(e) => {
+                        console::warn_1(&format!("Status poll error: {}", e).into());
+                    }
                 }
                 Ok(JsValue::UNDEFINED)
             });
