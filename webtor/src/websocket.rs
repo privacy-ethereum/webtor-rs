@@ -104,6 +104,10 @@ mod wasm {
                 Err(_) => return Err(TorError::Network("Connection cancelled or sender dropped".to_string())),
             }
 
+            // Clear onopen handler before it's dropped to prevent
+            // "closure invoked after being dropped" errors
+            socket.set_onopen(None);
+
             Ok(Self {
                 socket,
                 rx,

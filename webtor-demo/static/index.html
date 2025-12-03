@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss://snowflake.torproject.net https:; img-src 'self' data:; font-src 'self'; base-uri 'self'; form-action 'none';">
-    <title>Webtor-rs - Tor Client in Rust/WASM</title>
+    <title>webtor-rs - Web Native Tor Client</title>
     <link rel="icon" href="tor.svg" type="image/svg+xml">
     <style>
         * { box-sizing: border-box; }
@@ -15,6 +15,45 @@
             background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
             min-height: 100vh;
             color: #e8e8e8;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .site-header {
+            background: rgba(0, 0, 0, 0.3);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 16px 20px;
+        }
+
+        .site-header-inner {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .site-logo {
+            width: 40px;
+            height: 40px;
+        }
+
+        .site-title {
+            margin: 0;
+            font-size: 22px;
+            background: linear-gradient(135deg, #9a4fd1, #7d33b8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: 600;
+        }
+
+        .site-subtitle {
+            color: #a0a0a0;
+            font-size: 13px;
+            margin-left: 12px;
+            padding-left: 12px;
+            border-left: 1px solid rgba(255, 255, 255, 0.2);
         }
 
         .main-container {
@@ -24,7 +63,7 @@
             padding: 20px;
             max-width: 1400px;
             margin: 0 auto;
-            min-height: calc(100vh - 40px);
+            flex: 1;
         }
 
         .panel {
@@ -268,24 +307,49 @@
             align-items: center;
         }
 
-        .toggle-btn {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            color: #a0a0a0;
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 12px;
+        /* Toggle Switch */
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            gap: 8px;
             cursor: pointer;
+        }
+
+        .toggle-switch-track {
+            width: 36px;
+            height: 20px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+            position: relative;
+            transition: background 0.2s;
+        }
+
+        .toggle-switch-thumb {
+            width: 16px;
+            height: 16px;
+            background: #a0a0a0;
+            border-radius: 50%;
+            position: absolute;
+            top: 2px;
+            left: 2px;
             transition: all 0.2s;
         }
 
-        .toggle-btn:hover {
-            background: rgba(255, 255, 255, 0.15);
+        .toggle-switch.active .toggle-switch-track {
+            background: rgba(154, 79, 209, 0.4);
         }
 
-        .toggle-btn.active {
-            background: rgba(154, 79, 209, 0.3);
-            border-color: #9a4fd1;
+        .toggle-switch.active .toggle-switch-thumb {
+            left: 18px;
+            background: #9a4fd1;
+        }
+
+        .toggle-switch-label {
+            font-size: 12px;
+            color: #a0a0a0;
+        }
+
+        .toggle-switch.active .toggle-switch-label {
             color: #9a4fd1;
         }
 
@@ -343,6 +407,39 @@
             font-style: italic;
         }
 
+        .site-footer {
+            background: rgba(0, 0, 0, 0.3);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 16px 20px;
+            text-align: center;
+        }
+
+        .site-footer-inner {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: #808080;
+        }
+
+        .site-footer a {
+            color: #9a4fd1;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .site-footer a:hover {
+            color: #b87fe8;
+            text-decoration: underline;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 16px;
+        }
+
         @media (max-width: 900px) {
             .main-container {
                 grid-template-columns: 1fr;
@@ -352,24 +449,41 @@
                 min-height: 200px;
             }
 
-            h1 { font-size: 20px; }
-            .subtitle { font-size: 12px; }
+            .site-header-inner {
+                flex-wrap: wrap;
+            }
+
+            .site-subtitle {
+                width: 100%;
+                margin-left: 0;
+                padding-left: 0;
+                border-left: none;
+                margin-top: 4px;
+            }
+
+            .site-footer-inner {
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .site-title { font-size: 18px; }
             button { padding: 8px 14px; font-size: 12px; }
         }
     </style>
 </head>
 <body>
+    <!-- Site Header -->
+    <header class="site-header">
+        <div class="site-header-inner">
+            <img src="tor.svg" alt="webtor-rs logo" class="site-logo">
+            <h1 class="site-title">webtor-rs</h1>
+            <span class="site-subtitle">web native Tor client in Rust/WASM</span>
+        </div>
+    </header>
+
     <div class="main-container">
         <!-- Left Panel - Controls -->
         <div class="panel" role="main">
-            <div class="header">
-                <img src="tor.svg" alt="Webtor-rs onion logo" class="logo">
-                <div>
-                    <h1>Webtor-rs</h1>
-                    <p class="subtitle">Tor client in Rust/WASM</p>
-                </div>
-            </div>
-
             <div class="warning-banner" role="alert">
                 <strong>Experimental:</strong> Use at your own risk. TLS 1.3 only.
             </div>
@@ -440,24 +554,6 @@
                 </div>
             </div>
 
-            <div class="features-grid" role="list" aria-label="Features">
-                <div class="feature-card" role="listitem">
-                    <h4>Snowflake</h4>
-                    <p>WebRTC-based transport</p>
-                </div>
-                <div class="feature-card" role="listitem">
-                    <h4>3-Hop Circuits</h4>
-                    <p>Guard, Middle, Exit</p>
-                </div>
-                <div class="feature-card" role="listitem">
-                    <h4>Auto Refresh</h4>
-                    <p>Circuit rotation</p>
-                </div>
-                <div class="feature-card" role="listitem">
-                    <h4>TLS 1.3</h4>
-                    <p>SubtleCrypto</p>
-                </div>
-            </div>
         </div>
 
         <!-- Right Panel - Logs -->
@@ -465,7 +561,12 @@
             <div class="log-header">
                 <div class="section-title" id="logsLabel">Connection Logs</div>
                 <div class="log-controls">
-                    <button id="verboseBtn" class="toggle-btn" aria-label="Toggle verbose logging" aria-pressed="false">Verbose</button>
+                    <div id="verboseToggle" class="toggle-switch" role="switch" aria-checked="false" aria-label="Toggle verbose logging" tabindex="0">
+                        <div class="toggle-switch-track">
+                            <div class="toggle-switch-thumb"></div>
+                        </div>
+                        <span class="toggle-switch-label">Verbose</span>
+                    </div>
                     <button id="clearBtn" class="secondary" style="padding: 6px 12px;" aria-label="Clear all log entries">Clear</button>
                 </div>
             </div>
@@ -474,6 +575,17 @@
             </div>
         </div>
     </div>
+
+    <!-- Site Footer -->
+    <footer class="site-footer">
+        <div class="site-footer-inner">
+            <span>v0.1.0</span>
+            <div class="footer-links">
+                <a href="https://github.com/voltrevo/webtor-rs" target="_blank" rel="noopener noreferrer">GitHub</a>
+                <a href="https://github.com/voltrevo/webtor-rs/blob/main/docs/FEATURES.md" target="_blank" rel="noopener noreferrer">Features</a>
+            </div>
+        </div>
+    </footer>
 
     <script type="module">
         import init, { DemoApp, setLogCallback, setDebugEnabled } from './pkg/webtor_demo.js';
@@ -618,7 +730,7 @@
             const url1Input = document.getElementById('url1');
             const output1 = document.getElementById('output1');
             const clearBtn = document.getElementById('clearBtn');
-            const verboseBtn = document.getElementById('verboseBtn');
+            const verboseToggle = document.getElementById('verboseToggle');
 
             // Preset selection handler
             presetSelect.addEventListener('change', () => {
@@ -644,12 +756,19 @@
                 setLogCallback(logCallback);
 
                 let verboseEnabled = false;
-                verboseBtn.addEventListener('click', () => {
+                const toggleVerbose = () => {
                     verboseEnabled = !verboseEnabled;
-                    verboseBtn.classList.toggle('active', verboseEnabled);
-                    verboseBtn.setAttribute('aria-pressed', verboseEnabled);
+                    verboseToggle.classList.toggle('active', verboseEnabled);
+                    verboseToggle.setAttribute('aria-checked', verboseEnabled);
                     setDebugEnabled(verboseEnabled);
                     logCallback('INFO', 'demo', `Verbose logging ${verboseEnabled ? 'enabled' : 'disabled'}`);
+                };
+                verboseToggle.addEventListener('click', toggleVerbose);
+                verboseToggle.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggleVerbose();
+                    }
                 });
 
                 statusEl.textContent = 'Not initialized';

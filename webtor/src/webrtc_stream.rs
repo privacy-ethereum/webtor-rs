@@ -273,11 +273,15 @@ mod wasm {
 
         // Wait with timeout
         let timeout = gloo_timers::future::TimeoutFuture::new(30_000);
-        
+
         let result = futures::select! {
             r = rx.fuse() => r.map_err(|_| TorError::Network("Channel open cancelled".to_string()))?,
             _ = timeout.fuse() => Err("DataChannel open timeout".to_string()),
         };
+
+        // CRITICAL: Clear the onopen handler before returning to prevent
+        // "closure invoked after being dropped" errors
+        dc.set_onopen(None);
 
         result.map_err(TorError::Network)
     }
