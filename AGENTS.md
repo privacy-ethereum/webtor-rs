@@ -10,10 +10,10 @@ cargo check --package webtor
 cargo check --package webtor --target wasm32-unknown-unknown
 cargo check --package webtor-wasm --target wasm32-unknown-unknown
 
-# Build WASM module for demo
-wasm-pack build webtor-wasm --target web --out-dir ../example/pkg
+# Build WASM demo (includes embedded consensus)
+wasm-pack build webtor-demo --target web --out-dir pkg --release
 
-# Run demo locally
+# Run example locally (alternative, requires npm)
 cd example && npm install && npm run dev
 ```
 
