@@ -129,10 +129,12 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin> AnyStream for T {}
 /// HTTP client that routes requests through Tor circuits
 pub struct TorHttpClient {
     circuit_manager: Arc<RwLock<CircuitManager>>,
-    tls_connector: Arc<TlsConnector>,
+    #[cfg(not(target_arch = "wasm32"))]
+    tls_connector: Arc<tokio_rustls::TlsConnector>,
 }
 
 impl TorHttpClient {
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new(circuit_manager: Arc<RwLock<CircuitManager>>) -> Self {
         let mut root_cert_store = rustls::RootCertStore::empty();
         root_cert_store.extend(
@@ -143,11 +145,18 @@ impl TorHttpClient {
             .with_root_certificates(root_cert_store)
             .with_no_client_auth();
 
-        let tls_connector = TlsConnector::from(Arc::new(config));
+        let tls_connector = tokio_rustls::TlsConnector::from(Arc::new(config));
 
         Self {
             circuit_manager,
             tls_connector: Arc::new(tls_connector),
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn new(circuit_manager: Arc<RwLock<CircuitManager>>) -> Self {
+        Self {
+            circuit_manager,
         }
     }
     
@@ -175,11 +184,11 @@ impl TorHttpClient {
         let stream = {
             let mut circuit_write = circuit.write().await;
             circuit_write.update_last_used();
-            circuit_write.begin_stream(host, port).await?
+            circuit_write.begin_stream(&host, port).await?
         };
         
         // Build the HTTP request
-        let request_bytes = request.build_request(host);
+        let request_bytes = request.build_request(&host);
         debug!("Sending {} bytes of HTTP request", request_bytes.len());
         
         // Execute request with or without TLS
@@ -187,7 +196,7 @@ impl TorHttpClient {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 // Wrap stream with TLS using rustls
-                let tls_stream = wrap_with_tls(stream, host).await?;
+                let tls_stream = wrap_with_tls(stream, &host).await?;
                 execute_http_request(tls_stream, &request_bytes).await?
             }
             #[cfg(target_arch = "wasm32")]
@@ -201,7 +210,7 @@ impl TorHttpClient {
                 };
                 let connector = TlsConnector::with_config(config);
                 
-                let mut tls_stream = connector.connect(stream, host).await
+                let mut tls_stream = connector.connect(stream, &host).await
                     .map_err(|e| TorError::tls(format!("TLS handshake failed: {}", e)))?;
                 
                 info!("TLS connection established with {} (WASM/SubtleCrypto)", host);

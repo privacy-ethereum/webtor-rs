@@ -69,16 +69,7 @@ impl TorClient {
         if options.create_circuit_early {
             info!("Establishing connection early");
             
-            // First, fetch consensus to get relay information
-            info!("Fetching network consensus...");
-            match client.refresh_consensus().await {
-                Ok(count) => info!("Got {} relays from consensus", count),
-                Err(e) => {
-                    warn!("Failed to fetch consensus: {} - circuit extension will fail", e);
-                }
-            }
-            
-            // Then establish the channel
+            // Establish the channel
             info!("TorClient::new: calling establish_channel");
             if let Err(e) = client.establish_channel().await {
                 error!("Failed to establish channel: {}", e);
@@ -224,43 +215,8 @@ impl TorClient {
         "Ready".to_string()
     }
     
-    /// Refresh the relay list from the Tor network consensus
-    /// This should be called periodically (consensus updates every ~1 hour)
-    pub async fn refresh_consensus(&self) -> Result<usize> {
-        info!("Refreshing consensus...");
-        self.log("Fetching network consensus", LogType::Info);
-        
-        let relays = self.consensus_manager.get_relays().await?;
-        let count = relays.len();
-        
-        // Update the relay manager with new relays
-        let mut circuit_manager = self.circuit_manager.write().await;
-        circuit_manager.update_relay_list(relays);
-        
-        self.log(&format!("Got {} relays from consensus", count), LogType::Success);
-        info!("Consensus refreshed with {} relays", count);
-        
-        Ok(count)
-    }
-    
-    /// Get the current consensus cache status
-    pub async fn get_consensus_status(&self) -> String {
-        self.consensus_manager.cache_status().await
-    }
-    
-    /// Check if consensus needs to be refreshed
-    pub async fn needs_consensus_refresh(&self) -> bool {
-        self.consensus_manager.needs_refresh().await
-    }
-    
     /// Ensure the client is ready for making requests
-    /// This fetches consensus (if needed) and establishes a circuit
     pub async fn ensure_ready(&self) -> Result<()> {
-        // Refresh consensus if needed
-        if self.needs_consensus_refresh().await {
-            self.refresh_consensus().await?;
-        }
-        
         // Establish channel if not already done
         if !*self.is_initialized.read().await {
             self.establish_channel().await?;
