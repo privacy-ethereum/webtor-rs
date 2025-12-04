@@ -13,8 +13,8 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "consensus-update"
-  cancel-in-progress: true
+  group: "pages"
+  cancel-in-progress: false
 
 jobs:
   update-consensus:

@@ -706,7 +706,7 @@
     <!-- Site Footer -->
     <footer class="site-footer">
         <div class="site-footer-inner">
-            <span>v0.1.6</span>
+            <span>v0.1.7</span>
             <div class="footer-links">
                 <a href="https://github.com/igor53627/webtor-rs" target="_blank" rel="noopener noreferrer">GitHub</a>
                 <a href="https://github.com/igor53627/webtor-rs#features" target="_blank" rel="noopener noreferrer">Features</a>
@@ -1102,7 +1102,7 @@
                                 btnIsolated.disabled = false;
                                 updateBtn.disabled = false;
                                 // Update circuit display when ready - show current target URL
-                                updateCircuitDisplay(app, url1.value);
+                                updateCircuitDisplay(app, url1Input.value);
                             } else if (status.includes('Error') || status.includes('Failed')) {
                                 statusDot.className = 'status-dot error';
                             } else {
