@@ -9,7 +9,7 @@ This document compares **webtor-rs** (Rust) and **echalote** (TypeScript) - two 
 | **Language** | Rust → WASM | TypeScript + WASM modules |
 | **Tor Protocol** | Uses battle-tested `tor-proto` crate | Custom implementation |
 | **Security** | Production-grade TLS validation | No No TLS certificate validation |
-| **Transport** | WebTunnel + Snowflake (WebSocket) | Snowflake (WebSocket) + Meek |
+| **Transport** | WebTunnel + Snowflake (WebSocket/WebRTC) | Snowflake (WebSocket) + Meek |
 | **Maturity** | Built on Arti (official Rust Tor) | Experimental, early-stage |
 | **TLS** | TLS 1.3 via SubtleCrypto | TLS 1.2 via @hazae41/cadenas |
 
@@ -98,10 +98,15 @@ async fn verify_certificate_chain(&self, certs: &[Certificate]) -> Result<()> {
 
 | Feature | webtor-rs | echalote |
 |---------|-----------|----------|
-| **Connection Method** | Direct WebSocket | Direct WebSocket |
-| **Protocol Stack** | WebSocket → Turbo → KCP → SMUX | WebSocket → Turbo → KCP → SMUX |
+| **Connection Methods** | WebSocket OR WebRTC | Direct WebSocket only |
+| **WebRTC Support** | Yes (via broker) | No |
+| **Protocol Stack** | WebRTC/WebSocket -> Turbo -> KCP -> SMUX | WebSocket -> Turbo -> KCP -> SMUX |
 
-Both implementations connect directly to the Snowflake bridge via WebSocket, bypassing the volunteer proxy network. This is a simplification that works but loses some censorship-resistance benefits of the full WebRTC-based Snowflake architecture.
+**webtor-rs supports both connection methods:**
+- **WebSocket**: Direct connection to bridge (simpler, faster setup)
+- **WebRTC**: Via broker + volunteer proxies (more censorship resistant)
+
+The WebRTC option routes traffic through volunteer browser extensions, making it harder to block.
 
 #### WebTunnel Support
 
@@ -323,5 +328,6 @@ let response = client.get("https://example.com").await?;
 
 | Bridge | WASM | Native | Censorship Resistance |
 |--------|------|--------|----------------------|
-| Snowflake | Yes | No | Medium (WebSocket) |
+| Snowflake (WebSocket) | Yes | No | Medium (direct) |
+| Snowflake (WebRTC) | Yes | No | High (volunteer proxies) |
 | WebTunnel | Yes | Yes | Medium (HTTPS) |

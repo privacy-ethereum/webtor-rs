@@ -25,10 +25,15 @@ pub const SNOWFLAKE_URL_SECONDARY: &str = "wss://snowflake.bamsoftware.com/";
 /// Bridge type configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BridgeType {
-    /// Snowflake bridge (WebSocket + Turbo + KCP + SMUX)
+    /// Snowflake bridge via direct WebSocket (simpler, less censorship resistant)
     Snowflake {
-        /// WebSocket URL for Snowflake broker
+        /// WebSocket URL for Snowflake
         url: String,
+    },
+    /// Snowflake bridge via WebRTC (proper architecture, more censorship resistant)
+    SnowflakeWebRtc {
+        /// Broker URL for WebRTC signaling (default: snowflake-broker.torproject.net)
+        broker_url: String,
     },
     /// WebTunnel bridge (HTTPS with HTTP Upgrade)
     WebTunnel {
@@ -171,6 +176,17 @@ impl TorClientOptions {
     /// Create options for a Snowflake bridge (legacy - use snowflake() instead)
     pub fn new(snowflake_url: String) -> Self {
         Self::snowflake_with_url(snowflake_url)
+    }
+
+    /// Create options for Snowflake bridge via WebRTC (more censorship resistant)
+    pub fn snowflake_webrtc() -> Self {
+        Self {
+            bridge: BridgeType::SnowflakeWebRtc { 
+                broker_url: "https://snowflake-broker.torproject.net/".to_string(),
+            },
+            bridge_fingerprint: Some(SNOWFLAKE_FINGERPRINT_PRIMARY.to_string()),
+            ..Default::default()
+        }
     }
 
     /// Create options for a WebTunnel bridge

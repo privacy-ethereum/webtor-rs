@@ -84,6 +84,16 @@ impl TorClientOptions {
         }
     }
     
+    /// Create options for Snowflake bridge via WebRTC (more censorship resistant)
+    #[wasm_bindgen(js_name = snowflakeWebRtc)]
+    pub fn snowflake_webrtc() -> Self {
+        console_log!("Creating TorClientOptions with Snowflake WebRTC");
+        
+        Self {
+            inner: NativeTorClientOptions::snowflake_webrtc(),
+        }
+    }
+    
     #[wasm_bindgen(js_name = withConnectionTimeout)]
     pub fn with_connection_timeout(mut self, timeout: u32) -> Self {
         self.inner = self.inner.with_connection_timeout(timeout as u64);

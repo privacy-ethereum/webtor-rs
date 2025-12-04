@@ -581,7 +581,8 @@
                     <span id="status">Not initialized</span>
                 </div>
                 <div class="btn-group" style="margin-top: 12px;">
-                    <button id="openBtn" aria-label="Open and initialize Tor client connection">Open TorClient</button>
+                    <button id="openBtn" aria-label="Open and initialize Tor client connection (WebSocket)">Open (WebSocket)</button>
+                    <button id="openWebRtcBtn" aria-label="Open and initialize Tor client connection (WebRTC - more censorship resistant)">Open (WebRTC)</button>
                     <button id="closeBtn" class="secondary" disabled aria-label="Close Tor client connection">Close</button>
                     <button id="updateBtn" class="secondary" disabled aria-label="Refresh the current circuit">Refresh Circuit</button>
                 </div>
@@ -702,7 +703,7 @@
     <!-- Site Footer -->
     <footer class="site-footer">
         <div class="site-footer-inner">
-            <span>v0.1.12</span>
+            <span>v0.2.0</span>
             <div class="footer-links">
                 <a href="https://github.com/igor53627/webtor-rs" target="_blank" rel="noopener noreferrer">GitHub</a>
                 <a href="https://github.com/igor53627/webtor-rs#features" target="_blank" rel="noopener noreferrer">Features</a>
@@ -885,6 +886,7 @@
             const statusEl = document.getElementById('status');
             const statusDot = document.getElementById('statusDot');
             const openBtn = document.getElementById('openBtn');
+            const openWebRtcBtn = document.getElementById('openWebRtcBtn');
             const closeBtn = document.getElementById('closeBtn');
             const updateBtn = document.getElementById('updateBtn');
             const btn1 = document.getElementById('btn1');
@@ -1079,10 +1081,13 @@
 
                 let app = null;
 
-                openBtn.addEventListener('click', async () => {
+                // Helper function for open logic (shared between WebSocket and WebRTC)
+                async function doOpen(useWebRtc) {
                     openBtn.disabled = true;
+                    openWebRtcBtn.disabled = true;
                     openBtn.setAttribute('aria-busy', 'true');
-                    statusEl.textContent = 'Connecting...';
+                    openWebRtcBtn.setAttribute('aria-busy', 'true');
+                    statusEl.textContent = useWebRtc ? 'Connecting (WebRTC)...' : 'Connecting (WebSocket)...';
                     statusDot.className = 'status-dot loading';
 
                     try {
@@ -1104,17 +1109,26 @@
                             }
                         });
 
-                        await app.open();
+                        if (useWebRtc) {
+                            await app.openWebRtc();
+                        } else {
+                            await app.open();
+                        }
                         closeBtn.disabled = false;
 
                     } catch (e) {
                         statusEl.textContent = 'Error: ' + (e.message || e);
                         statusDot.className = 'status-dot error';
                         openBtn.disabled = false;
+                        openWebRtcBtn.disabled = false;
                         logCallback('ERROR', 'connection', 'Connection failed: ' + (e.message || e));
                     }
                     openBtn.removeAttribute('aria-busy');
-                });
+                    openWebRtcBtn.removeAttribute('aria-busy');
+                }
+
+                openBtn.addEventListener('click', () => doOpen(false));
+                openWebRtcBtn.addEventListener('click', () => doOpen(true));
 
                 closeBtn.addEventListener('click', async () => {
                     if (app) {
@@ -1128,6 +1142,7 @@
                     statusEl.textContent = 'Not initialized';
                     statusDot.className = 'status-dot';
                     openBtn.disabled = false;
+                    openWebRtcBtn.disabled = false;
                     closeBtn.disabled = true;
                     updateBtn.disabled = true;
                     btn1.disabled = true;
