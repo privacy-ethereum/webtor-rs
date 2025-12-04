@@ -70,21 +70,18 @@ jobs:
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+      - name: Build WASM demo
+        run: wasm-pack build webtor-demo --target web --out-dir pkg --release
 
-      - name: Build WASM module
-        run: wasm-pack build webtor-wasm --target web --out-dir ../example/pkg
-
-      - name: Install dependencies
-        working-directory: ./example
-        run: npm install
-
-      - name: Build example app
-        working-directory: ./example
-        run: npm run build
+      - name: Prepare static files
+        run: |
+          mkdir -p webtor-demo/static/pkg
+          cp -r webtor-demo/pkg/* webtor-demo/static/pkg/
+          # Create brotli-compressed consensus files for lazy loading
+          brotli -f -k webtor/src/cached/consensus.txt
+          brotli -f -k webtor/src/cached/microdescriptors.txt
+          cp webtor/src/cached/consensus.txt.br webtor-demo/static/
+          cp webtor/src/cached/microdescriptors.txt.br webtor-demo/static/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -92,7 +89,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./example/dist
+          path: ./webtor-demo/static
 
   deploy:
     environment:
