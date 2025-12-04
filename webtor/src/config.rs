@@ -182,7 +182,7 @@ impl TorClientOptions {
     pub fn snowflake_webrtc() -> Self {
         Self {
             bridge: BridgeType::SnowflakeWebRtc { 
-                broker_url: "https://snowflake-proxy-2j1gqkh53-igor53627s-projects-0dc1aedd.vercel.app/".to_string(),
+                broker_url: "https://snowflake-broker.torproject.net/".to_string(),
             },
             bridge_fingerprint: Some(SNOWFLAKE_FINGERPRINT_PRIMARY.to_string()),
             ..Default::default()

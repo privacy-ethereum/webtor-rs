@@ -1,6 +1,6 @@
 // Vercel Edge Function: CORS proxy for Snowflake broker
 
-const BROKER_URL = 'https://1098762253.rsc.cdn77.org/client';
+const BROKER_URL = 'https://snowflake-broker.torproject.net/client';
 
 export const config = {
   runtime: 'edge',
