@@ -198,15 +198,27 @@ mod wasm {
             .map_err(|e| TorError::Network(format!("Failed to set local description: {:?}", e)))?;
 
         // Wait for ICE gathering to complete
+        info!("ICE gathering state: {:?}", pc.ice_gathering_state());
         if pc.ice_gathering_state() != RtcIceGatheringState::Complete {
+            info!("Waiting for ICE gathering to complete...");
             wait_for_ice_gathering(pc).await?;
+            info!("ICE gathering finished, state: {:?}", pc.ice_gathering_state());
         }
 
         // Get the complete SDP with ICE candidates
         let local_desc = pc.local_description()
             .ok_or_else(|| TorError::Internal("No local description after gathering".to_string()))?;
         
-        Ok(local_desc.sdp())
+        let sdp = local_desc.sdp();
+        
+        // Log SDP details for debugging
+        let ice_candidate_count = sdp.matches("a=candidate:").count();
+        debug!("SDP contains {} ICE candidates", ice_candidate_count);
+        if ice_candidate_count == 0 {
+            warn!("SDP has no ICE candidates - this may cause broker matching to fail");
+        }
+        
+        Ok(sdp)
     }
 
     /// Wait for ICE gathering state to become complete
