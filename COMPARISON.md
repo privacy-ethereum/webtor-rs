@@ -17,34 +17,34 @@ This document compares **webtor-rs** (Rust) and **echalote** (TypeScript) - two 
 
 ### Protocol Stack
 
+**webtor-rs**
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                           webtor-rs                                  │
-├─────────────────────────────────────────────────────────────────────┤
-│  TorClient                                                           │
-│    ├── tor-proto (official Arti crate)                              │
-│    │     ├── Channel (Tor handshake, cell processing)               │
-│    │     ├── Circuit (CREATE2, EXTEND2, ntor-v3)                    │
-│    │     └── Stream (RELAY cells, flow control)                     │
-│    ├── subtle-tls (TLS 1.3 with SubtleCrypto + cert validation)     │
-│    └── Transport Layer                                               │
-│          ├── WebTunnel (HTTPS + HTTP Upgrade)                       │
-│          └── Snowflake (WebSocket → Turbo → KCP → SMUX)             │
-└─────────────────────────────────────────────────────────────────────┘
++------------------------------------------------------------------+
+|  TorClient                                                       |
+|    +-- tor-proto (official Arti crate)                           |
+|    |     +-- Channel (Tor handshake, cell processing)            |
+|    |     +-- Circuit (CREATE2, EXTEND2, ntor-v3)                 |
+|    |     +-- Stream (RELAY cells, flow control)                  |
+|    +-- subtle-tls (TLS 1.3 with SubtleCrypto + cert validation)  |
+|    +-- Transport Layer                                           |
+|          +-- WebTunnel (HTTPS + HTTP Upgrade)                    |
+|          +-- Snowflake (WebSocket -> Turbo -> KCP -> SMUX)       |
++------------------------------------------------------------------+
+```
 
-┌─────────────────────────────────────────────────────────────────────┐
-│                           echalote                                   │
-├─────────────────────────────────────────────────────────────────────┤
-│  TorClientDuplex                                                     │
-│    ├── Custom Tor implementation                                     │
-│    │     ├── Handshake (VERSION, CERTS, NETINFO)                    │
-│    │     ├── Circuit (CREATE_FAST, EXTEND2, ntor)                   │
-│    │     └── Stream (RELAY cells, SENDME flow control)              │
-│    ├── @hazae41/cadenas (TLS - NO cert validation Warning)               │
-│    └── Transport Layer                                               │
-│          ├── Snowflake (WebSocket → Turbo → KCP → SMUX)             │
-│          └── Meek (HTTP batched transport)                          │
-└─────────────────────────────────────────────────────────────────────┘
+**echalote**
+```
++------------------------------------------------------------------+
+|  TorClientDuplex                                                 |
+|    +-- Custom Tor implementation                                 |
+|    |     +-- Handshake (VERSION, CERTS, NETINFO)                 |
+|    |     +-- Circuit (CREATE_FAST, EXTEND2, ntor)                |
+|    |     +-- Stream (RELAY cells, SENDME flow control)           |
+|    +-- @hazae41/cadenas (TLS - NO cert validation)               |
+|    +-- Transport Layer                                           |
+|          +-- Snowflake (WebSocket -> Turbo -> KCP -> SMUX)       |
+|          +-- Meek (HTTP batched transport)                       |
++------------------------------------------------------------------+
 ```
 
 ## Detailed Comparison
