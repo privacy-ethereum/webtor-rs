@@ -32,7 +32,7 @@ pub enum BridgeType {
     },
     /// Snowflake bridge via WebRTC (proper architecture, more censorship resistant)
     SnowflakeWebRtc {
-        /// Broker URL for WebRTC signaling (default: snowflake-broker.torproject.net)
+        /// Broker URL for WebRTC signaling (via CORS proxy)
         broker_url: String,
     },
     /// WebTunnel bridge (HTTPS with HTTP Upgrade)
@@ -182,7 +182,7 @@ impl TorClientOptions {
     pub fn snowflake_webrtc() -> Self {
         Self {
             bridge: BridgeType::SnowflakeWebRtc { 
-                broker_url: "https://snowflake-broker.torproject.net/".to_string(),
+                broker_url: "https://snowflake-proxy-q5n0yq05v-igor53627s-projects-0dc1aedd.vercel.app/".to_string(),
             },
             bridge_fingerprint: Some(SNOWFLAKE_FINGERPRINT_PRIMARY.to_string()),
             ..Default::default()

@@ -155,7 +155,7 @@ impl BrokerClient {
         let body = request.encode()?;
         
         // Use CORS proxy - simple fetch without domain fronting
-        let proxy_url = format!("{}client", self.broker_url.trim_end_matches('/'));
+        let proxy_url = format!("{}/client", self.broker_url.trim_end_matches('/'));
         
         info!("Using CORS proxy: {}", proxy_url);
         debug!("Sending offer to broker ({} bytes)", body.len());
