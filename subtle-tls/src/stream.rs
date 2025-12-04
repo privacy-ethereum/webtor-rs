@@ -252,9 +252,8 @@ where
                             | (handshake_buffer[3] as usize);
                         
                         let total_len = 4 + length;
-                        tracing::error!("PARSE: type={}, length={}, total_len={}, buffer_len={}, first8={:02x?}", 
-                              msg_type, length, total_len, handshake_buffer.len(), 
-                              &handshake_buffer[..8.min(handshake_buffer.len())]);
+                        trace!("Parsing handshake: type={}, length={}, buffer_len={}", 
+                              msg_type, length, handshake_buffer.len());
                         
                         if handshake_buffer.len() < total_len {
                             // Need more data - wait for next record
