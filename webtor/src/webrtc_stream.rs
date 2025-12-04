@@ -132,10 +132,12 @@ mod wasm {
             // 5. Exchange offer/answer via broker
             let broker = BrokerClient::new(broker_url)
                 .with_fingerprint(fingerprint.to_string());
-            let answer_sdp = broker.negotiate(&offer_sdp).await?;
+            let answer_json = broker.negotiate(&offer_sdp).await?;
             info!("Got SDP answer from broker");
 
-            // 6. Set remote description
+            // 6. Parse and set remote description
+            // Answer is JSON: {"type":"answer","sdp":"..."}
+            let answer_sdp = parse_sdp_answer(&answer_json)?;
             let answer_init = RtcSessionDescriptionInit::new(RtcSdpType::Answer);
             answer_init.set_sdp(&answer_sdp);
             
@@ -223,18 +225,32 @@ mod wasm {
         let ice_candidate_count = sdp.matches("a=candidate:").count();
         info!("SDP contains {} ICE candidates, {} bytes total", ice_candidate_count, sdp.len());
         
-        // Log the actual SDP for debugging (first 500 chars)
-        if sdp.len() > 500 {
-            debug!("SDP (truncated): {}...", &sdp[..500]);
-        } else {
-            debug!("SDP: {}", sdp);
-        }
-        
         if ice_candidate_count == 0 {
             warn!("SDP has no ICE candidates - this may cause broker matching to fail");
         }
         
-        Ok(sdp)
+        // Serialize as JSON object like Go client does: {"type":"offer","sdp":"..."}
+        let offer_json = serde_json::json!({
+            "type": "offer",
+            "sdp": sdp
+        });
+        let serialized = serde_json::to_string(&offer_json)
+            .map_err(|e| TorError::Internal(format!("Failed to serialize SDP offer: {}", e)))?;
+        
+        debug!("Serialized SDP offer: {} bytes", serialized.len());
+        Ok(serialized)
+    }
+
+    /// Parse SDP answer from JSON format {"type":"answer","sdp":"..."}
+    fn parse_sdp_answer(json_str: &str) -> Result<String> {
+        let parsed: serde_json::Value = serde_json::from_str(json_str)
+            .map_err(|e| TorError::Protocol(format!("Failed to parse SDP answer JSON: {}", e)))?;
+        
+        let sdp = parsed.get("sdp")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| TorError::Protocol("SDP answer missing 'sdp' field".to_string()))?;
+        
+        Ok(sdp.to_string())
     }
 
     /// Wait for ICE gathering state to become complete
