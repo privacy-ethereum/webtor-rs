@@ -75,16 +75,37 @@ print_status "Copying demo files..."
 mkdir -p webtor-demo/static/pkg
 cp -r webtor-demo/pkg/* webtor-demo/static/pkg/
 
+# Run wasm-opt if available (for additional size optimization)
+optimize_wasm() {
+    local path="$1"
+    if [ -f "$path" ] && command -v wasm-opt &> /dev/null; then
+        print_status "Running wasm-opt on $(basename "$path")..."
+        wasm-opt -Oz --strip-dwarf --strip-producers \
+            -o "${path}.opt" "$path"
+        mv "${path}.opt" "$path"
+    fi
+}
+
+# Print WASM sizes (uncompressed and gzipped)
+print_wasm_size() {
+    local path="$1"
+    if [ -f "$path" ]; then
+        local size=$(ls -lh "$path" | awk '{print $5}')
+        local gz_size=$(gzip -c -9 "$path" | wc -c | awk '{printf "%.2f MB", $1/1024/1024}')
+        print_status "$(basename "$path"): $size (uncompressed), $gz_size (gzipped)"
+    fi
+}
+
+# Optimize WASM binaries if wasm-opt is available
+if [ "$BUILD_MODE" = "--release" ]; then
+    optimize_wasm webtor-wasm/pkg/webtor_wasm_bg.wasm
+    optimize_wasm webtor-demo/pkg/webtor_demo_bg.wasm
+fi
+
 # Show WASM sizes
 echo ""
-if [ -f webtor-wasm/pkg/webtor_wasm_bg.wasm ]; then
-    SIZE=$(ls -lh webtor-wasm/pkg/webtor_wasm_bg.wasm | awk '{print $5}')
-    print_status "webtor-wasm.wasm: $SIZE"
-fi
-if [ -f webtor-demo/pkg/webtor_demo_bg.wasm ]; then
-    SIZE=$(ls -lh webtor-demo/pkg/webtor_demo_bg.wasm | awk '{print $5}')
-    print_status "webtor-demo.wasm: $SIZE"
-fi
+print_wasm_size webtor-wasm/pkg/webtor_wasm_bg.wasm
+print_wasm_size webtor-demo/pkg/webtor_demo_bg.wasm
 
 echo ""
 print_status "Build completed successfully!"

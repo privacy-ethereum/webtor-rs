@@ -249,7 +249,7 @@ Most modern sites work. Some legacy servers may have compatibility issues.
 
 | Metric | Value | Notes |
 |--------|-------|-------|
-| WASM Bundle | 0.94 MB gzipped | Optimized with wasm-opt |
+| WASM Bundle | ~2.7 MB uncompressed, ~0.94 MB gzipped | Optimized with wasm-opt |
 | Initial Load | 2-5 sec | WASM compilation |
 | Consensus Fetch | 5-15 sec | Parallel microdesc fetching |
 | Circuit Creation | 20-60 sec | 3-hop with handshakes |

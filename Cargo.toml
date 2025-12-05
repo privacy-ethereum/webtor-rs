@@ -160,3 +160,16 @@ tor-checkable = { path = "vendor/arti/crates/tor-checkable" }
 tor-netdoc = { path = "vendor/arti/crates/tor-netdoc" }
 fslock-guard = { path = "vendor/arti/crates/fslock-guard" }
 fs-mistrust = { path = "vendor/arti/crates/fs-mistrust" }
+
+# Release profile optimized for WASM bundle size
+[profile.release]
+opt-level = "z"        # Optimize for size
+lto = "fat"            # Full LTO for better dead code elimination
+codegen-units = 1      # Single codegen unit for better optimization
+strip = "debuginfo"    # Strip debug info but keep symbols for wasm-bindgen
+panic = "abort"        # Smaller binary, no unwinding overhead
+debug = 0              # No debug info
+
+# Keep unwinding for tests to get better error messages
+[profile.test]
+panic = "unwind"
