@@ -60,6 +60,52 @@ async fn hmac_sha256(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     Ok(uint8_array.to_vec())
 }
 
+/// HMAC-SHA384 for SHA-384 cipher suites
+async fn hmac_sha384(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
+    let subtle = get_subtle_crypto()?;
+
+    let key_data = Uint8Array::from(key);
+    let algorithm = Object::new();
+    Reflect::set(&algorithm, &"name".into(), &"HMAC".into())
+        .map_err(|_| TlsError::subtle_crypto("Failed to set algorithm name"))?;
+
+    let hash_obj = Object::new();
+    Reflect::set(&hash_obj, &"name".into(), &"SHA-384".into())
+        .map_err(|_| TlsError::subtle_crypto("Failed to set hash name"))?;
+    Reflect::set(&algorithm, &"hash".into(), &hash_obj)
+        .map_err(|_| TlsError::subtle_crypto("Failed to set hash"))?;
+
+    let key_usages = Array::new();
+    key_usages.push(&"sign".into());
+
+    let crypto_key = JsFuture::from(
+        subtle.import_key_with_object(
+            "raw",
+            &key_data.buffer(),
+            &algorithm,
+            false,
+            &key_usages,
+        )
+        .map_err(|e| TlsError::subtle_crypto(format!("Failed to import HMAC key: {:?}", e)))?
+    )
+    .await
+    .map_err(|e| TlsError::subtle_crypto(format!("HMAC key import failed: {:?}", e)))?;
+
+    let crypto_key: CryptoKey = crypto_key.unchecked_into();
+
+    let data_array = Uint8Array::from(data);
+    let signature = JsFuture::from(
+        subtle.sign_with_str_and_buffer_source("HMAC", &crypto_key, &data_array.buffer())
+            .map_err(|e| TlsError::subtle_crypto(format!("HMAC sign failed: {:?}", e)))?
+    )
+    .await
+    .map_err(|e| TlsError::subtle_crypto(format!("HMAC computation failed: {:?}", e)))?;
+
+    let array_buffer: ArrayBuffer = signature.unchecked_into();
+    let uint8_array = Uint8Array::new(&array_buffer);
+    Ok(uint8_array.to_vec())
+}
+
 /// HMAC-SHA1 for older cipher suites
 async fn hmac_sha1(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     let subtle = get_subtle_crypto()?;
@@ -279,6 +325,26 @@ pub async fn compute_mac_sha1(
     data.extend_from_slice(fragment);
     
     hmac_sha1(mac_key, &data).await
+}
+
+/// Compute MAC with SHA-384 for SHA-384 cipher suites
+pub async fn compute_mac_sha384(
+    mac_key: &[u8],
+    seq_num: u64,
+    content_type: u8,
+    version: u16,
+    fragment: &[u8],
+) -> Result<Vec<u8>> {
+    let mut data = Vec::with_capacity(13 + fragment.len());
+    data.extend_from_slice(&seq_num.to_be_bytes());
+    data.push(content_type);
+    data.push((version >> 8) as u8);
+    data.push(version as u8);
+    data.push((fragment.len() >> 8) as u8);
+    data.push(fragment.len() as u8);
+    data.extend_from_slice(fragment);
+    
+    hmac_sha384(mac_key, &data).await
 }
 
 #[cfg(test)]
