@@ -124,9 +124,10 @@ webtor-rs/
    - Caches with TTL (1 hour fresh, 3 hours valid)
 
 4. **Snowflake Transport** (`snowflake.rs`, `snowflake_broker.rs`, `webrtc_stream.rs`)
-   - **Correct WebRTC architecture**: Client → Broker → Volunteer Proxy → Bridge
-   - Broker API for SDP offer/answer exchange
-   - WebRTC DataChannel for reliable transport
+   - **Two modes**: WebSocket (direct) and WebRTC (via volunteer proxies)
+   - WebSocket: Direct connection to bridge (simpler, faster)
+   - WebRTC: Client → Broker → Volunteer Proxy → Bridge (more censorship resistant)
+   - Broker API for SDP offer/answer exchange (JSON-encoded SDPs)
    - Turbo → KCP → SMUX protocol stack
 
 5. **WebTunnel Transport** (`webtunnel.rs`)
@@ -176,9 +177,10 @@ webtor-rs/
   - [x] Turbo framing protocol (variable-length headers)
   - [x] KCP reliable transport (stream mode, conv=0)
   - [x] SMUX multiplexing (v2, little-endian)
-  - [x] WebRTC DataChannel (WASM only)
+  - [x] WebSocket mode (direct connection to bridge)
+  - [x] WebRTC mode (via volunteer proxies, WASM only)
   - [x] Broker API client for proxy assignment
-  - [x] Proper signaling flow (SDP offer/answer)
+  - [x] Proper signaling flow (JSON-encoded SDP offer/answer)
 
 ## 🚧 In Progress / Planned
 
@@ -218,7 +220,8 @@ Adding TLS 1.2 support requires implementing different key exchange and cipher s
 |-----------|--------|-------|
 | Core Library | Yes Complete | Full Tor protocol support |
 | WebTunnel | Yes Complete | Works on WASM + Native |
-| Snowflake | Yes Complete | WASM only (WebRTC) |
+| Snowflake (WS) | Yes Complete | Direct WebSocket to bridge |
+| Snowflake (WebRTC) | Yes Complete | Via volunteer proxies (WASM) |
 | TLS/HTTPS | Yes Complete | TLS 1.3 via SubtleCrypto |
 | Consensus | Yes Complete | Fetching + parsing + caching |
 | Circuit Creation | Yes Complete | 3-hop circuits |

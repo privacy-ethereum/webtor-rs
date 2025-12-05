@@ -19,9 +19,17 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 /// STUN servers used for ICE gathering
+/// These match the official Snowflake client configuration
 pub const STUN_SERVERS: &[&str] = &[
     "stun:stun.l.google.com:19302",
-    "stun:stun.voip.blackberry.com:3478",
+    "stun:stun.antisip.com:3478",
+    "stun:stun.bluesip.net:3478",
+    "stun:stun.dus.net:3478",
+    "stun:stun.epygi.com:3478",
+    "stun:stun.sonetel.com:3478",
+    "stun:stun.uls.co.za:3478",
+    "stun:stun.voipgate.com:3478",
+    "stun:stun.voys.nl:3478",
 ];
 
 /// DataChannel configuration matching Snowflake Go client
@@ -124,10 +132,12 @@ mod wasm {
             // 5. Exchange offer/answer via broker
             let broker = BrokerClient::new(broker_url)
                 .with_fingerprint(fingerprint.to_string());
-            let answer_sdp = broker.negotiate(&offer_sdp).await?;
+            let answer_json = broker.negotiate(&offer_sdp).await?;
             info!("Got SDP answer from broker");
 
-            // 6. Set remote description
+            // 6. Parse and set remote description
+            // Answer is JSON: {"type":"answer","sdp":"..."}
+            let answer_sdp = parse_sdp_answer(&answer_json)?;
             let answer_init = RtcSessionDescriptionInit::new(RtcSdpType::Answer);
             answer_init.set_sdp(&answer_sdp);
             
@@ -198,15 +208,49 @@ mod wasm {
             .map_err(|e| TorError::Network(format!("Failed to set local description: {:?}", e)))?;
 
         // Wait for ICE gathering to complete
+        info!("ICE gathering state: {:?}", pc.ice_gathering_state());
         if pc.ice_gathering_state() != RtcIceGatheringState::Complete {
+            info!("Waiting for ICE gathering to complete...");
             wait_for_ice_gathering(pc).await?;
+            info!("ICE gathering finished, state: {:?}", pc.ice_gathering_state());
         }
 
         // Get the complete SDP with ICE candidates
         let local_desc = pc.local_description()
             .ok_or_else(|| TorError::Internal("No local description after gathering".to_string()))?;
         
-        Ok(local_desc.sdp())
+        let sdp = local_desc.sdp();
+        
+        // Log SDP details for debugging
+        let ice_candidate_count = sdp.matches("a=candidate:").count();
+        info!("SDP contains {} ICE candidates, {} bytes total", ice_candidate_count, sdp.len());
+        
+        if ice_candidate_count == 0 {
+            warn!("SDP has no ICE candidates - this may cause broker matching to fail");
+        }
+        
+        // Serialize as JSON object like Go client does: {"type":"offer","sdp":"..."}
+        let offer_json = serde_json::json!({
+            "type": "offer",
+            "sdp": sdp
+        });
+        let serialized = serde_json::to_string(&offer_json)
+            .map_err(|e| TorError::Internal(format!("Failed to serialize SDP offer: {}", e)))?;
+        
+        debug!("Serialized SDP offer: {} bytes", serialized.len());
+        Ok(serialized)
+    }
+
+    /// Parse SDP answer from JSON format {"type":"answer","sdp":"..."}
+    fn parse_sdp_answer(json_str: &str) -> Result<String> {
+        let parsed: serde_json::Value = serde_json::from_str(json_str)
+            .map_err(|e| TorError::Protocol(format!("Failed to parse SDP answer JSON: {}", e)))?;
+        
+        let sdp = parsed.get("sdp")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| TorError::Protocol("SDP answer missing 'sdp' field".to_string()))?;
+        
+        Ok(sdp.to_string())
     }
 
     /// Wait for ICE gathering state to become complete
@@ -214,11 +258,18 @@ mod wasm {
         let (tx, rx) = futures::channel::oneshot::channel::<()>();
         let tx = Rc::new(RefCell::new(Some(tx)));
 
+        // Clone pc reference for use in closure
+        let pc_clone = pc.clone();
         let tx_clone = tx.clone();
         let on_ice_gathering = Closure::wrap(Box::new(move |_: web_sys::Event| {
-            // Check if complete (closure will be called for each state change)
-            if let Some(tx) = tx_clone.borrow_mut().take() {
-                let _ = tx.send(());
+            // Only signal when gathering is actually complete
+            if pc_clone.ice_gathering_state() == RtcIceGatheringState::Complete {
+                info!("ICE gathering completed");
+                if let Some(tx) = tx_clone.borrow_mut().take() {
+                    let _ = tx.send(());
+                }
+            } else {
+                info!("ICE gathering state changed to: {:?}", pc_clone.ice_gathering_state());
             }
         }) as Box<dyn FnMut(web_sys::Event)>);
 
@@ -226,6 +277,7 @@ mod wasm {
 
         // Also check current state in case we missed the transition
         if pc.ice_gathering_state() == RtcIceGatheringState::Complete {
+            info!("ICE gathering already complete");
             if let Some(tx) = tx.borrow_mut().take() {
                 let _ = tx.send(());
             }
@@ -235,10 +287,10 @@ mod wasm {
         let timeout = gloo_timers::future::TimeoutFuture::new(10_000);
         futures::select! {
             _ = rx.fuse() => {
-                debug!("ICE gathering complete");
+                info!("ICE gathering finished successfully");
             }
             _ = timeout.fuse() => {
-                warn!("ICE gathering timeout - proceeding with partial candidates");
+                warn!("ICE gathering timeout after 10s - proceeding with partial candidates");
             }
         }
 

@@ -42,15 +42,15 @@ impl DemoApp {
         *lock_or_recover(&self.status_callback) = Some(callback);
     }
 
-    /// Open the TorClient and wait for circuit
+    /// Open the TorClient using WebSocket (simpler, less censorship resistant)
     #[wasm_bindgen]
     pub fn open(&self) -> js_sys::Promise {
         let app = self.clone();
 
         future_to_promise(async move {
-            app.update_status("Connecting to Snowflake...")?;
+            app.update_status("Connecting to Snowflake (WebSocket)...")?;
 
-            // Create TorClient with default Snowflake URL
+            // Create TorClient with WebSocket-based Snowflake
             let options = TorClientOptions::new("wss://snowflake.torproject.net/".to_string())
                 .with_connection_timeout(15000)
                 .with_circuit_timeout(120000)
@@ -76,6 +76,45 @@ impl DemoApp {
             app.start_status_polling()?;
 
             app.update_status("Ready")?;
+            Ok(JsValue::UNDEFINED)
+        })
+    }
+
+    /// Open the TorClient using WebRTC (more censorship resistant via volunteer proxies)
+    #[wasm_bindgen(js_name = openWebRtc)]
+    pub fn open_webrtc(&self) -> js_sys::Promise {
+        let app = self.clone();
+
+        future_to_promise(async move {
+            app.update_status("Connecting to Snowflake (WebRTC)...")?;
+            app.update_status("Using volunteer proxies for censorship resistance")?;
+
+            // Create TorClient with WebRTC-based Snowflake
+            let options = TorClientOptions::snowflake_webrtc()
+                .with_connection_timeout(30000)  // WebRTC needs more time for signaling
+                .with_circuit_timeout(120000)
+                .with_create_circuit_early(true)
+                .with_circuit_update_interval(Some(120000))
+                .with_circuit_update_advance(30000);
+
+            app.update_status("Creating TorClient (WebRTC)...")?;
+
+            let client = TorClient::create(options).await
+                .map_err(|e| JsValue::from_str(&format!("Failed to create TorClient: {}", e)))?;
+
+            // Store client before waiting
+            *lock_or_recover(&app.tor_client) = Some(client.clone());
+
+            app.update_status("Waiting for circuit...")?;
+
+            // Wait for circuit
+            client.wait_for_circuit_rust().await
+                .map_err(|e| JsValue::from_str(&format!("Circuit failed: {}", e)))?;
+
+            // Start status polling
+            app.start_status_polling()?;
+
+            app.update_status("Ready (WebRTC)")?;
             Ok(JsValue::UNDEFINED)
         })
     }

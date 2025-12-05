@@ -8,6 +8,8 @@ use crate::http::{HttpRequest, HttpResponse, TorHttpClient};
 use crate::relay::RelayManager;
 #[cfg(target_arch = "wasm32")]
 use crate::snowflake_ws::{SnowflakeWsConfig, SnowflakeWsStream};
+#[cfg(target_arch = "wasm32")]
+use crate::snowflake::{SnowflakeBridge, SnowflakeConfig};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::webtunnel::{WebTunnelConfig, create_webtunnel_stream};
 use crate::wasm_runtime::WasmRuntime;
@@ -319,7 +321,7 @@ impl TorClient {
         
         // Get fingerprint - use default for Snowflake if not provided
         let fingerprint = match &self.options.bridge {
-            BridgeType::Snowflake { .. } => {
+            BridgeType::Snowflake { .. } | BridgeType::SnowflakeWebRtc { .. } => {
                 self.options.bridge_fingerprint.as_ref()
                     .map(|s| s.clone())
                     .unwrap_or_else(|| SNOWFLAKE_FINGERPRINT_PRIMARY.to_string())
@@ -346,10 +348,10 @@ impl TorClient {
         let chan = match &self.options.bridge {
             BridgeType::Snowflake { url } => {
                 self.log("Connecting via Snowflake (WebSocket)", LogType::Info);
-                self.log("Using WebSocket → Turbo → KCP → SMUX → TLS stack", LogType::Info);
+                self.log("Using WebSocket -> Turbo -> KCP -> SMUX -> TLS stack", LogType::Info);
                 #[cfg(target_arch = "wasm32")]
                 {
-                    // Use WebSocket-based Snowflake (like echalote)
+                    // Use WebSocket-based Snowflake (simpler, less censorship resistant)
                     let config = SnowflakeWsConfig::default()
                         .with_url(url)
                         .with_fingerprint(&fingerprint);
@@ -362,6 +364,29 @@ impl TorClient {
                     let _ = url; // suppress unused warning
                     return Err(TorError::Internal(
                         "Snowflake WebSocket is only available in WASM. \
+                         Use WebTunnel bridge for native builds.".to_string()
+                    ));
+                }
+            }
+            BridgeType::SnowflakeWebRtc { broker_url } => {
+                self.log("Connecting via Snowflake (WebRTC)", LogType::Info);
+                self.log("Using WebRTC -> Turbo -> KCP -> SMUX -> TLS stack", LogType::Info);
+                self.log("This provides better censorship resistance via volunteer proxies", LogType::Info);
+                #[cfg(target_arch = "wasm32")]
+                {
+                    // Use WebRTC-based Snowflake (proper architecture)
+                    let config = SnowflakeConfig::with_broker(broker_url.clone())
+                        .with_fingerprint(fingerprint.clone());
+                    let bridge = SnowflakeBridge::with_config(config);
+                    let stream = bridge.connect().await?;
+                    self.log("Connected to Snowflake bridge via WebRTC", LogType::Success);
+                    self.create_channel_from_stream(stream, rsa_id).await?
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let _ = broker_url; // suppress unused warning
+                    return Err(TorError::Internal(
+                        "Snowflake WebRTC is only available in WASM. \
                          Use WebTunnel bridge for native builds.".to_string()
                     ));
                 }

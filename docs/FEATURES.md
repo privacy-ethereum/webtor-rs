@@ -3,15 +3,22 @@
 ## Transport Layer
 
 ### Snowflake Bridge
-- WebRTC-based transport for censorship circumvention
-- Automatic broker negotiation for proxy assignment
-- Turbo framing protocol for obfuscation
-- KCP reliable transport layer
-- SMUX stream multiplexing
+Two connection modes for different use cases:
 
-### Protocol Stack
+#### WebSocket Mode (Direct)
+- Direct WebSocket connection to Snowflake bridge
+- Simpler setup, faster connection
+- Good for most use cases
+
+#### WebRTC Mode (Volunteer Proxies)
+- Connects via Snowflake broker to volunteer proxies
+- More censorship resistant (traffic routed through volunteers)
+- Uses JSON-encoded SDP offer/answer for signaling
+- Automatic ICE candidate gathering
+
+### Shared Protocol Stack
 ```
-WebRTC DataChannel (to volunteer proxy)
+WebSocket / WebRTC DataChannel
     |
 Turbo (framing + obfuscation)
     |

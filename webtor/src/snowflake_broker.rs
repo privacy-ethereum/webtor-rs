@@ -14,11 +14,14 @@ use crate::error::{Result, TorError};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
-/// Snowflake broker URL (main Tor Project broker)
+/// Snowflake broker URL (direct - has CORS support)
 pub const BROKER_URL: &str = "https://snowflake-broker.torproject.net/";
 
-/// Alternative broker URL
-pub const BROKER_URL_ALT: &str = "https://snowflake-broker.bamsoftware.com/";
+/// Front domains for domain fronting (CDN77) - kept for reference but not used with CORS proxy
+pub const BROKER_FRONT_DOMAINS: &[&str] = &["www.cdn77.com", "www.phpmyadmin.net"];
+
+/// Direct broker URL (doesn't work from browsers due to CORS)
+pub const BROKER_URL_DIRECT: &str = "https://snowflake-broker.torproject.net/";
 
 /// Client protocol version
 const CLIENT_VERSION: &str = "1.0";
@@ -27,7 +30,7 @@ const CLIENT_VERSION: &str = "1.0";
 pub const DEFAULT_BRIDGE_FINGERPRINT: &str = "2B280B23E1107BB62ABFC40DDCC8824814F80A72";
 
 /// NAT type for the client
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum NatType {
     #[default]
@@ -63,7 +66,9 @@ impl ClientPollRequest {
     pub fn new(offer: String) -> Self {
         Self {
             offer,
-            nat: NatType::Unknown.to_string(),
+            // Spoof as "unrestricted" when unknown to get matched with restricted proxies
+            // This matches the behavior of the official Go client's NATPolicy
+            nat: NatType::Unrestricted.to_string(),
             fingerprint: DEFAULT_BRIDGE_FINGERPRINT.to_string(),
         }
     }
@@ -141,47 +146,92 @@ impl BrokerClient {
 
     /// Exchange SDP offer for SDP answer via broker
     /// Returns the SDP answer from a volunteer proxy
+    /// Retries up to MAX_RETRIES times if no proxy is available
     pub async fn negotiate(&self, sdp_offer: &str) -> Result<String> {
-        info!("Contacting Snowflake broker at {}", self.broker_url);
+        const MAX_RETRIES: u32 = 5;
+        const RETRY_DELAY_MS: u64 = 2000;
         
-        let request = ClientPollRequest::new(sdp_offer.to_string())
-            .with_nat(self.nat_type)
+        // Build request - ClientPollRequest::new() sets NAT to "unrestricted" by default
+        // Only override if we have a real NAT type (not Unknown)
+        let mut request = ClientPollRequest::new(sdp_offer.to_string())
             .with_fingerprint(self.fingerprint.clone());
         
+        if self.nat_type != NatType::Unknown {
+            request = request.with_nat(self.nat_type);
+        }
+        
         let body = request.encode()?;
-        let url = format!("{}client", self.broker_url.trim_end_matches('/'));
+        let proxy_url = format!("{}/client", self.broker_url.trim_end_matches('/'));
         
-        debug!("Sending offer to broker ({} bytes)", body.len());
-        
-        #[cfg(target_arch = "wasm32")]
-        let response_bytes = self.fetch_wasm(&url, &body).await?;
-        
-        #[cfg(not(target_arch = "wasm32"))]
-        let response_bytes = self.fetch_native(&url, &body).await?;
-        
-        let response = ClientPollResponse::decode(&response_bytes)?;
-        
-        if !response.error.is_empty() {
-            warn!("Broker returned error: {}", response.error);
-            return Err(TorError::Network(format!("Broker error: {}", response.error)));
+        for attempt in 1..=MAX_RETRIES {
+            info!("Contacting Snowflake broker (attempt {}/{})", attempt, MAX_RETRIES);
+            debug!("Broker URL: {}", proxy_url);
+            
+            #[cfg(target_arch = "wasm32")]
+            let response_bytes = self.fetch_wasm(&proxy_url, &body).await?;
+            
+            #[cfg(not(target_arch = "wasm32"))]
+            let response_bytes = self.fetch_native(&proxy_url, &body).await?;
+            
+            let response = ClientPollResponse::decode(&response_bytes)?;
+            
+            debug!("Broker response: answer={} bytes, error='{}'", 
+                   response.answer.len(), response.error);
+            
+            if !response.error.is_empty() {
+                // Check if it's a "no proxy available" error - these are retryable
+                let is_retryable = response.error.contains("timed out") 
+                    || response.error.contains("no proxies")
+                    || response.error.contains("match");
+                
+                if is_retryable && attempt < MAX_RETRIES {
+                    warn!("No volunteer proxy available, retrying in {}ms... ({}/{})", 
+                          RETRY_DELAY_MS, attempt, MAX_RETRIES);
+                    
+                    #[cfg(target_arch = "wasm32")]
+                    gloo_timers::future::TimeoutFuture::new(RETRY_DELAY_MS as u32).await;
+                    
+                    #[cfg(not(target_arch = "wasm32"))]
+                    tokio::time::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS)).await;
+                    
+                    continue;
+                }
+                
+                // Final attempt failed or non-retryable error
+                let user_message = if is_retryable {
+                    "No Snowflake volunteer proxies available after multiple attempts. \
+                     This can happen during high demand or network issues. Please try again later."
+                } else {
+                    &format!("Snowflake broker error: {}", response.error)
+                };
+                
+                warn!("Broker error: {}", response.error);
+                return Err(TorError::Network(user_message.to_string()));
+            }
+            
+            if response.answer.is_empty() {
+                return Err(TorError::Network("Broker returned empty answer".to_string()));
+            }
+            
+            info!("Got SDP answer from broker ({} bytes)", response.answer.len());
+            return Ok(response.answer);
         }
         
-        if response.answer.is_empty() {
-            return Err(TorError::Network("Broker returned empty answer".to_string()));
-        }
-        
-        info!("Got SDP answer from broker ({} bytes)", response.answer.len());
-        Ok(response.answer)
+        Err(TorError::Network(
+            "No Snowflake volunteer proxies available. Please try again later.".to_string()
+        ))
     }
 
+    /// Fetch via CORS proxy
     #[cfg(target_arch = "wasm32")]
     async fn fetch_wasm(&self, url: &str, body: &[u8]) -> Result<Vec<u8>> {
         use wasm_bindgen::JsCast;
         use wasm_bindgen_futures::JsFuture;
-        use web_sys::{Request, RequestInit, Response};
+        use web_sys::{Request, RequestInit, RequestMode, Response};
 
         let opts = RequestInit::new();
         opts.set_method("POST");
+        opts.set_mode(RequestMode::Cors);
         
         // Convert body to Uint8Array
         let body_array = js_sys::Uint8Array::from(body);
@@ -190,9 +240,10 @@ impl BrokerClient {
         let request = Request::new_with_str_and_init(url, &opts)
             .map_err(|e| TorError::Network(format!("Failed to create request: {:?}", e)))?;
         
+        // Set Content-Type header
         request.headers()
             .set("Content-Type", "application/x-www-form-urlencoded")
-            .map_err(|e| TorError::Network(format!("Failed to set header: {:?}", e)))?;
+            .map_err(|e| TorError::Network(format!("Failed to set Content-Type header: {:?}", e)))?;
         
         let window = web_sys::window()
             .ok_or_else(|| TorError::Internal("No window object".to_string()))?;

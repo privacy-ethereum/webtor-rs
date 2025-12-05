@@ -115,7 +115,8 @@ flowchart TB
 
 | Transport | WASM | Native | Notes |
 |-----------|------|--------|-------|
-| Snowflake | Yes | No | WebRTC via volunteer proxies (correct architecture) |
+| Snowflake (WebSocket) | Yes | No | Direct connection to bridge (simpler) |
+| Snowflake (WebRTC) | Yes | No | Via volunteer proxies (more censorship resistant) |
 | WebTunnel | Yes | Yes | HTTPS, works through corporate proxies |
 
 ## Status
@@ -123,7 +124,8 @@ flowchart TB
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Tor Protocol | Complete | ntor-v3, CREATE2, 3-hop circuits |
-| Snowflake | Complete | WebRTC + Broker API + Turbo/KCP/SMUX |
+| Snowflake (WS) | Complete | Direct WebSocket + Turbo/KCP/SMUX |
+| Snowflake (WebRTC) | Complete | Broker API + volunteer proxies |
 | WebTunnel | Complete | HTTPS Upgrade with TLS validation |
 | Consensus | Complete | Fetching + parsing + 1hr caching |
 | HTTP Client | Complete | GET/POST through exit relays |
@@ -141,7 +143,8 @@ flowchart TB
 
 - [x] Tor protocol (Arti integration)
 - [x] HTTP/HTTPS through Tor
-- [x] Snowflake (WebRTC + Broker API)
+- [x] Snowflake WebSocket (direct bridge connection)
+- [x] Snowflake WebRTC (volunteer proxies via broker)
 - [x] WebTunnel (HTTPS Upgrade)
 - [x] TLS 1.3 support (SubtleCrypto)
 - [x] Consensus fetching and caching
