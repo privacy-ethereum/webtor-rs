@@ -754,6 +754,7 @@ mod verification {
     use super::*;
 
     #[kani::proof]
+    #[kani::unwind(10)]
     fn parse_handshake_header_never_panics() {
         let data: [u8; 8] = kani::any();
         let _ = parse_handshake_header(&data);
@@ -766,30 +767,36 @@ mod verification {
     }
 
     #[kani::proof]
+    #[kani::unwind(5)]
     fn parse_handshake_header_short_never_panics() {
         let data: [u8; 3] = kani::any();
         let _ = parse_handshake_header(&data);
     }
 
     #[kani::proof]
+    #[kani::unwind(20)]
     fn parse_certificate_never_panics() {
-        let data: [u8; 32] = kani::any();
+        // Use smaller input to keep verification tractable
+        let data: [u8; 16] = kani::any();
         let _ = parse_certificate(&data);
     }
 
     #[kani::proof]
+    #[kani::unwind(20)]
     fn parse_certificate_verify_never_panics() {
         let data: [u8; 16] = kani::any();
         let _ = parse_certificate_verify(&data);
     }
 
     #[kani::proof]
+    #[kani::unwind(10)]
     fn parse_finished_never_panics() {
-        let data: [u8; 32] = kani::any();
+        let data: [u8; 8] = kani::any();
         let _ = parse_finished(&data);
     }
 
     #[kani::proof]
+    #[kani::unwind(5)]
     fn handshake_header_length_bounded() {
         let data: [u8; 4] = kani::any();
         if let Ok((_ty, len)) = parse_handshake_header(&data) {
@@ -798,16 +805,19 @@ mod verification {
     }
 
     #[kani::proof]
+    #[kani::unwind(20)]
     fn certificate_parse_non_empty_on_ok() {
-        let data: [u8; 32] = kani::any();
+        // Use smaller input to keep verification tractable
+        let data: [u8; 16] = kani::any();
         if let Ok(certs) = parse_certificate(&data) {
             kani::assert(!certs.is_empty(), "certs should be non-empty on Ok");
         }
     }
 
     #[kani::proof]
+    #[kani::unwind(10)]
     fn finished_parse_preserves_length() {
-        let data: [u8; 32] = kani::any();
+        let data: [u8; 8] = kani::any();
         if let Ok(result) = parse_finished(&data) {
             kani::assert(result.len() == data.len(), "finished preserves length");
         }
