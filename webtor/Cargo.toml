@@ -43,6 +43,9 @@ base64 = { workspace = true }
 url = { workspace = true }
 http = { workspace = true }
 
+# Public Suffix List for eTLD+1 extraction
+psl = "2"
+
 # Serialization
 serde = { workspace = true }
 serde_json = "1.0"

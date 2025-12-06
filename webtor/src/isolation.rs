@@ -90,10 +90,10 @@ impl IsolationKey {
     }
 }
 
-/// Extract the registrable domain (eTLD+1 approximation) from a hostname
+/// Extract the registrable domain (eTLD+1) from a hostname using the Public Suffix List
 ///
-/// This is a simple heuristic that takes the last two labels of the hostname.
-/// For more accurate eTLD+1 handling, consider using the `publicsuffix` crate.
+/// Uses Mozilla's Public Suffix List via the `psl` crate for accurate domain extraction.
+/// This handles all known TLDs including multi-part suffixes like co.uk, com.au, etc.
 fn extract_domain(host: &str) -> String {
     if host.is_empty() {
         return String::new();
@@ -109,39 +109,23 @@ fn extract_domain(host: &str) -> String {
         return host.to_string();
     }
 
-    let parts: Vec<&str> = host.split('.').collect();
-
-    // Handle special TLDs that have two-part suffixes (co.uk, com.au, etc.)
-    // This is a simplified heuristic - for production use, consider publicsuffix crate
-    let known_two_part_tlds = [
-        "co.uk", "org.uk", "me.uk", "ac.uk", "gov.uk",
-        "com.au", "net.au", "org.au", "edu.au",
-        "co.nz", "org.nz", "net.nz",
-        "co.jp", "or.jp", "ne.jp", "ac.jp",
-        "com.br", "org.br", "net.br",
-        "co.in", "org.in", "net.in",
-    ];
-
-    if parts.len() >= 3 {
-        let last_two = format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1]);
-        if known_two_part_tlds.contains(&last_two.as_str()) {
-            // For two-part TLDs, take last 3 labels
-            if parts.len() >= 3 {
-                return format!(
-                    "{}.{}.{}",
-                    parts[parts.len() - 3],
-                    parts[parts.len() - 2],
-                    parts[parts.len() - 1]
-                );
-            }
+    // Use PSL to extract the registrable domain (eTLD+1)
+    // The psl crate works with bytes and handles lowercase internally
+    match psl::domain(host.as_bytes()) {
+        Some(domain) => {
+            // Convert the domain back to a string
+            // The Domain type implements PartialEq<str> and can be converted
+            std::str::from_utf8(domain.as_bytes())
+                .unwrap_or(host)
+                .to_string()
         }
-    }
-
-    // Default: take last two labels
-    if parts.len() >= 2 {
-        format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1])
-    } else {
-        host.to_string()
+        None => {
+            // PSL couldn't find a registrable domain - this happens for:
+            // - TLDs themselves (e.g., "com", "co.uk")
+            // - Private/unknown TLDs
+            // Fall back to returning the host as-is
+            host.to_string()
+        }
     }
 }
 
