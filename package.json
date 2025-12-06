@@ -20,6 +20,8 @@
     "test:bench": "node tests/e2e/test-benchmark.mjs --quick",
     "test:bench:full": "node tests/e2e/test-benchmark.mjs",
     "test:bench:headed": "node tests/e2e/test-benchmark.mjs --headed --quick",
+    "test:regression": "node tests/e2e/test-regression.mjs --quick",
+    "test:regression:headed": "node tests/e2e/test-regression.mjs --headed --quick",
     "clean": "cargo clean && rm -rf webtor-wasm/pkg webtor-demo/pkg",
     "dev": "cargo watch -s 'npm run build:wasm'"
   },
