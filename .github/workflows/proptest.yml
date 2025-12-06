@@ -1,0 +1,44 @@
+name: Property Tests
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  proptest:
+    name: Property Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache cargo
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-proptest-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Run property tests
+      run: cargo test --package webtor proptest -- --test-threads=1
+
+    - name: Upload regression files on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: proptest-regressions
+        path: |
+          **/proptest-regressions/
+        if-no-files-found: ignore

@@ -88,6 +88,7 @@ tokio-test = "0.4"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 sha2 = "0.10"
 criterion = "0.5"
+proptest = "1"
 
 # Integration benchmark (manual, requires network)
 [[bench]]

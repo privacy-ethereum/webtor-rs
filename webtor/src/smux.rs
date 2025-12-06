@@ -646,4 +646,120 @@ mod tests {
 
         assert!(SmuxSegment::decode(&buf).is_err());
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        fn smux_command_strategy() -> impl Strategy<Value = SmuxCommand> {
+            prop_oneof![
+                Just(SmuxCommand::Syn),
+                Just(SmuxCommand::Fin),
+                Just(SmuxCommand::Psh),
+                Just(SmuxCommand::Nop),
+                Just(SmuxCommand::Upd),
+            ]
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(256))]
+
+            #[test]
+            fn smux_segment_roundtrips(
+                cmd in smux_command_strategy(),
+                stream_id in any::<u32>(),
+                data in proptest::collection::vec(any::<u8>(), 0..=1024),
+            ) {
+                let seg = SmuxSegment {
+                    version: SMUX_VERSION,
+                    command: cmd,
+                    stream_id,
+                    data,
+                };
+                let encoded = seg.encode();
+
+                let (decoded, consumed_bytes) = SmuxSegment::decode(&encoded).unwrap().unwrap();
+
+                prop_assert_eq!(decoded.version, SMUX_VERSION);
+                prop_assert_eq!(decoded.command, cmd);
+                prop_assert_eq!(decoded.stream_id, stream_id);
+                prop_assert_eq!(decoded.data, seg.data);
+                prop_assert_eq!(consumed_bytes, encoded.len());
+            }
+
+            #[test]
+            fn smux_update_roundtrips(consumed in any::<u32>(), window in any::<u32>()) {
+                let seg = SmuxSegment::upd(3, consumed, window);
+                let upd = SmuxUpdate::decode(&seg.data).unwrap();
+
+                prop_assert_eq!(upd.consumed, consumed);
+                prop_assert_eq!(upd.window, window);
+            }
+
+            #[test]
+            fn smux_partial_decode_returns_none(
+                cmd in smux_command_strategy(),
+                stream_id in any::<u32>(),
+                data in proptest::collection::vec(any::<u8>(), 0..=256),
+            ) {
+                let seg = SmuxSegment {
+                    version: SMUX_VERSION,
+                    command: cmd,
+                    stream_id,
+                    data,
+                };
+                let encoded = seg.encode();
+
+                for split in 0..encoded.len() {
+                    let prefix = &encoded[..split];
+                    let res = SmuxSegment::decode(prefix).unwrap();
+                    prop_assert!(res.is_none(), "Expected None for prefix of length {}", split);
+                }
+
+                let full = SmuxSegment::decode(&encoded).unwrap();
+                prop_assert!(full.is_some());
+            }
+
+            #[test]
+            fn smux_rejects_invalid_version(
+                version in any::<u8>().prop_filter("valid version filtered", |v| *v != SMUX_VERSION),
+            ) {
+                let mut buf = Vec::with_capacity(12);
+                buf.push(version);
+                buf.push(SmuxCommand::Psh as u8);
+                buf.extend_from_slice(&4u16.to_le_bytes()); // data_len = 4
+                buf.extend_from_slice(&1u32.to_le_bytes()); // stream_id
+                buf.extend_from_slice(&[0u8; 4]); // data
+
+                let res = SmuxSegment::decode(&buf);
+                prop_assert!(res.is_err());
+            }
+
+            #[test]
+            fn smux_rejects_invalid_command(
+                cmd_byte in 5u8..=255u8, // commands 0-4 are valid
+            ) {
+                let mut buf = Vec::with_capacity(12);
+                buf.push(SMUX_VERSION);
+                buf.push(cmd_byte);
+                buf.extend_from_slice(&4u16.to_le_bytes()); // data_len = 4
+                buf.extend_from_slice(&1u32.to_le_bytes()); // stream_id
+                buf.extend_from_slice(&[0u8; 4]); // data
+
+                let res = SmuxSegment::decode(&buf);
+                prop_assert!(res.is_err());
+            }
+        }
+
+        #[test]
+        fn smux_update_rejects_short_payload() {
+            // UPD payload must be 8 bytes
+            for len in 0..8 {
+                let data = vec![0u8; len];
+                let result = SmuxUpdate::decode(&data);
+                assert!(result.is_err(), "Expected error for payload length {}", len);
+            }
+        }
+    }
 }
