@@ -18,7 +18,7 @@ A Rust Tor client for WebAssembly. Provides anonymous HTTP/HTTPS through Tor usi
 - **Two Transports** - Snowflake (WebRTC) and WebTunnel (HTTPS)
 - **Full Tor Protocol** - 3-hop circuits with ntor-v3 handshakes
 - **TLS 1.3 Support** - Pure-Rust TLS via SubtleCrypto (WASM)
-- **Stream Isolation** - Separate circuits per domain (Tor Browser-style)
+- **Stream Isolation** - Separate circuits per domain using Mozilla's Public Suffix List (Tor Browser-style)
 - **Circuit Reuse** - Persistent circuits for performance
 - **Consensus Fetching** - Automatic relay discovery with caching
 
