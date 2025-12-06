@@ -3,6 +3,7 @@
 use crate::circuit::CircuitManager;
 use crate::config::{MAX_CIRCUITS, CIRCUIT_PREBUILD_AGE_THRESHOLD_MS};
 use crate::error::{Result, TorError};
+use crate::isolation::{IsolationKey, StreamIsolationPolicy};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::tls::wrap_with_tls;
 use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -130,13 +131,14 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin> AnyStream for T {}
 /// HTTP client that routes requests through Tor circuits
 pub struct TorHttpClient {
     circuit_manager: Arc<RwLock<CircuitManager>>,
+    isolation_policy: StreamIsolationPolicy,
     #[cfg(not(target_arch = "wasm32"))]
     tls_connector: Arc<tokio_rustls::TlsConnector>,
 }
 
 impl TorHttpClient {
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn new(circuit_manager: Arc<RwLock<CircuitManager>>) -> Self {
+    pub fn new(circuit_manager: Arc<RwLock<CircuitManager>>, isolation_policy: StreamIsolationPolicy) -> Self {
         let mut root_cert_store = rustls::RootCertStore::empty();
         root_cert_store.extend(
             webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
@@ -150,14 +152,16 @@ impl TorHttpClient {
 
         Self {
             circuit_manager,
+            isolation_policy,
             tls_connector: Arc::new(tls_connector),
         }
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn new(circuit_manager: Arc<RwLock<CircuitManager>>) -> Self {
+    pub fn new(circuit_manager: Arc<RwLock<CircuitManager>>, isolation_policy: StreamIsolationPolicy) -> Self {
         Self {
             circuit_manager,
+            isolation_policy,
         }
     }
     
@@ -177,9 +181,15 @@ impl TorHttpClient {
         
         debug!("Target: {}:{} (HTTPS: {})", host, port, is_https);
         
-        // Get a ready circuit (reuses existing or creates new) and mark as used
+        // Compute isolation key based on policy
+        let isolation_key = IsolationKey::from_url(&url, self.isolation_policy);
+        if let Some(ref key) = isolation_key {
+            debug!("Using isolation key: {} (policy: {:?})", key, self.isolation_policy);
+        }
+        
+        // Get a circuit for this isolation key
         let circuit_manager = self.circuit_manager.read().await;
-        let circuit = circuit_manager.get_ready_circuit_and_mark_used().await?;
+        let circuit = circuit_manager.get_circuit_for_isolation_key(isolation_key).await?;
         
         // Begin stream on the circuit
         let stream = {
@@ -622,7 +632,7 @@ mod tests {
         
         let relay_manager = RelayManager::new(relays);
         let circuit_manager = Arc::new(RwLock::new(CircuitManager::new(Arc::new(RwLock::new(relay_manager)), Arc::new(RwLock::new(None)))));
-        let http_client = TorHttpClient::new(circuit_manager);
+        let http_client = TorHttpClient::new(circuit_manager, StreamIsolationPolicy::PerDomain);
         
         // This will fail because we don't have a real circuit
         let result = http_client.get("http://httpbin.org/ip").await;

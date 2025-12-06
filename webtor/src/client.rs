@@ -64,7 +64,7 @@ impl TorClient {
         }
         
         let circuit_manager = Arc::new(RwLock::new(CircuitManager::new(relay_manager_arc.clone(), channel.clone())));
-        let http_client = TorHttpClient::new(circuit_manager.clone());
+        let http_client = TorHttpClient::new(circuit_manager.clone(), options.stream_isolation);
         
         let client = Self {
             options: options.clone(),

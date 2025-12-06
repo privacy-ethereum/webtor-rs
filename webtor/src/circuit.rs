@@ -1,6 +1,8 @@
 //! Tor circuit management
 
+use crate::config::MAX_CIRCUITS_PER_ISOLATION_KEY;
 use crate::error::{Result, TorError};
+use crate::isolation::IsolationKey;
 use crate::relay::{Relay, RelayManager};
 use crate::time::Instant;
 use std::sync::Arc;
@@ -38,6 +40,9 @@ pub struct Circuit {
     pub last_used: Instant,
     pub relays: Vec<Relay>,
     pub(crate) internal_circuit: Option<Arc<ClientTunnel>>,
+    /// Stream isolation key - circuits are bound to a single isolation key
+    /// None means the circuit is unassigned and can be bound to any key
+    pub isolation_key: Option<IsolationKey>,
     _private: (),
 }
 
@@ -50,6 +55,7 @@ impl std::fmt::Debug for Circuit {
             .field("last_used", &self.last_used)
             .field("relays", &self.relays)
             .field("internal_circuit", &self.internal_circuit.is_some())
+            .field("isolation_key", &self.isolation_key)
             .finish()
     }
 }
@@ -64,7 +70,15 @@ impl Circuit {
             last_used: now,
             relays: Vec::new(),
             internal_circuit,
+            isolation_key: None,
             _private: (),
+        }
+    }
+
+    /// Bind this circuit to an isolation key (can only be done once)
+    pub fn set_isolation_key(&mut self, key: IsolationKey) {
+        if self.isolation_key.is_none() {
+            self.isolation_key = Some(key);
         }
     }
     
@@ -355,6 +369,95 @@ impl CircuitManager {
         }
         Ok(circuit)
     }
+
+    /// Get or create a circuit bound to the given isolation key
+    ///
+    /// This implements stream isolation by ensuring requests to different
+    /// domains use different circuits, preventing cross-site correlation.
+    pub async fn get_circuit_for_isolation_key(
+        &self,
+        key: Option<IsolationKey>,
+    ) -> Result<Arc<RwLock<Circuit>>> {
+        // If no isolation key, fall back to legacy behavior
+        let key = match key {
+            Some(k) => k,
+            None => return self.get_ready_circuit_and_mark_used().await,
+        };
+
+        // 1. Look for a ready circuit already bound to this key
+        {
+            let circuits = self.circuits.read().await;
+            for circuit in circuits.iter() {
+                let circuit_read = circuit.read().await;
+                if circuit_read.is_ready() {
+                    if let Some(ref circuit_key) = circuit_read.isolation_key {
+                        if circuit_key == &key {
+                            debug!("Reusing circuit {} for isolation key {}", circuit_read.id, key);
+                            drop(circuit_read);
+                            let mut circuit_write = circuit.write().await;
+                            circuit_write.update_last_used();
+                            return Ok(circuit.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Look for a ready unassigned circuit to bind
+        {
+            let circuits = self.circuits.read().await;
+            for circuit in circuits.iter() {
+                let circuit_read = circuit.read().await;
+                if circuit_read.is_ready() && circuit_read.isolation_key.is_none() {
+                    debug!("Binding unassigned circuit {} to isolation key {}", circuit_read.id, key);
+                    drop(circuit_read);
+                    let mut circuit_write = circuit.write().await;
+                    circuit_write.set_isolation_key(key.clone());
+                    circuit_write.update_last_used();
+                    return Ok(circuit.clone());
+                }
+            }
+        }
+
+        // 3. Check per-key circuit limit before creating new
+        {
+            let circuits = self.circuits.read().await;
+            let circuits_for_key = circuits.iter().filter(|c| {
+                if let Ok(circuit_read) = c.try_read() {
+                    if let Some(ref circuit_key) = circuit_read.isolation_key {
+                        return circuit_key == &key && !circuit_read.is_failed() && !circuit_read.is_closed();
+                    }
+                }
+                false
+            }).count();
+
+            if circuits_for_key >= MAX_CIRCUITS_PER_ISOLATION_KEY {
+                // Try to reuse any circuit for this key (even if not ready yet)
+                for circuit in circuits.iter() {
+                    let circuit_read = circuit.read().await;
+                    if let Some(ref circuit_key) = circuit_read.isolation_key {
+                        if circuit_key == &key && !circuit_read.is_failed() && !circuit_read.is_closed() {
+                            debug!("At per-key limit, reusing circuit {} for {}", circuit_read.id, key);
+                            drop(circuit_read);
+                            let mut circuit_write = circuit.write().await;
+                            circuit_write.update_last_used();
+                            return Ok(circuit.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Create a new circuit and bind it to this key
+        info!("Creating new circuit for isolation key {}", key);
+        let circuit = self.create_circuit().await?;
+        {
+            let mut circuit_write = circuit.write().await;
+            circuit_write.set_isolation_key(key);
+            circuit_write.update_last_used();
+        }
+        Ok(circuit)
+    }
     
     /// Get circuit status information
     pub async fn get_circuit_status(&self) -> CircuitStatusInfo {
@@ -639,5 +742,26 @@ mod tests {
         
         circuit.status = CircuitStatus::Closed;
         assert!(circuit.is_closed());
+    }
+
+    #[test]
+    fn test_circuit_isolation_key_binding() {
+        let mut circuit = Circuit::new("test_circuit".to_string(), None);
+        assert!(circuit.isolation_key.is_none());
+
+        let key1 = IsolationKey::from_string("example.com");
+        circuit.set_isolation_key(key1.clone());
+        assert_eq!(circuit.isolation_key, Some(key1.clone()));
+
+        // Trying to set a different key should be ignored (circuits bind once)
+        let key2 = IsolationKey::from_string("other.com");
+        circuit.set_isolation_key(key2);
+        assert_eq!(circuit.isolation_key, Some(key1));
+    }
+
+    #[test]
+    fn test_circuit_new_has_no_isolation_key() {
+        let circuit = Circuit::new("test".to_string(), None);
+        assert!(circuit.isolation_key.is_none());
     }
 }

@@ -1,5 +1,6 @@
 //! Configuration options for the Tor client
 
+use crate::isolation::StreamIsolationPolicy;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std::sync::Arc;
@@ -86,6 +87,10 @@ pub struct TorClientOptions {
     /// Optional bridge fingerprint (hex string) to verify the bridge identity
     pub bridge_fingerprint: Option<String>,
 
+    /// Stream isolation policy for domain-based circuit separation
+    #[serde(default)]
+    pub stream_isolation: StreamIsolationPolicy,
+
     /// Optional logging callback function (for WASM bindings)
     #[serde(skip)]
     pub on_log: Option<LogCallback>,
@@ -119,6 +124,7 @@ impl Default for TorClientOptions {
             circuit_update_interval: default_circuit_update_interval(),
             circuit_update_advance: default_circuit_update_advance(),
             bridge_fingerprint: None,
+            stream_isolation: StreamIsolationPolicy::default(),
             on_log: None,
         }
     }
@@ -145,7 +151,10 @@ fn default_circuit_update_advance() -> u64 {
 }
 
 /// Maximum number of circuits to maintain (for preemptive building)
-pub const MAX_CIRCUITS: usize = 2;
+pub const MAX_CIRCUITS: usize = 5;
+
+/// Maximum circuits per isolation key (one circuit per first-party domain)
+pub const MAX_CIRCUITS_PER_ISOLATION_KEY: usize = 1;
 
 /// Age threshold for preemptive circuit building (circuit_timeout - 10 seconds)
 pub const CIRCUIT_PREBUILD_AGE_THRESHOLD_MS: u64 = 80_000; // 90_000 - 10_000
@@ -246,6 +255,11 @@ impl TorClientOptions {
 
     pub fn with_bridge_fingerprint(mut self, fingerprint: String) -> Self {
         self.bridge_fingerprint = Some(fingerprint);
+        self
+    }
+
+    pub fn with_stream_isolation(mut self, policy: StreamIsolationPolicy) -> Self {
+        self.stream_isolation = policy;
         self
     }
     

@@ -18,6 +18,7 @@ A Rust Tor client for WebAssembly. Provides anonymous HTTP/HTTPS through Tor usi
 - **Two Transports** - Snowflake (WebRTC) and WebTunnel (HTTPS)
 - **Full Tor Protocol** - 3-hop circuits with ntor-v3 handshakes
 - **TLS 1.3 Support** - Pure-Rust TLS via SubtleCrypto (WASM)
+- **Stream Isolation** - Separate circuits per domain (Tor Browser-style)
 - **Circuit Reuse** - Persistent circuits for performance
 - **Consensus Fetching** - Automatic relay discovery with caching
 
@@ -40,6 +41,12 @@ let client = TorClient::new(TorClientOptions::snowflake()).await?;
 // WebTunnel (WASM + Native)  
 let client = TorClient::new(
     TorClientOptions::webtunnel(url, fingerprint)
+).await?;
+
+// Configure stream isolation (default: PerDomain)
+let client = TorClient::new(
+    TorClientOptions::snowflake()
+        .with_stream_isolation(StreamIsolationPolicy::PerDomain)
 ).await?;
 
 // Bootstrap and make requests
@@ -136,7 +143,6 @@ flowchart TB
 
 - **TLS 1.2 Experimental** - TLS 1.2 support is new and may have issues
 - **Onion Services** - `.onion` addresses not yet implemented  
-- **Stream Isolation** - All requests share one circuit
 - **Mobile** - Not optimized for mobile browsers
 
 ## Roadmap
@@ -149,6 +155,7 @@ flowchart TB
 - [x] TLS 1.3 support (SubtleCrypto)
 - [x] Consensus fetching and caching
 - [x] TLS 1.2 support (experimental)
+- [x] Stream isolation per domain
 - [ ] Onion service support
 - [ ] Performance optimizations
 - [ ] Security audit

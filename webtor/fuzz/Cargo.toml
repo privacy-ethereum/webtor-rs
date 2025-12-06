@@ -1,0 +1,23 @@
+[package]
+name = "webtor-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+url = "2"
+
+[dependencies.webtor]
+path = ".."
+
+[[bin]]
+name = "fuzz_isolation_key"
+path = "fuzz_targets/fuzz_isolation_key.rs"
+test = false
+doc = false
+bench = false

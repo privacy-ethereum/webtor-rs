@@ -10,6 +10,7 @@ pub mod config;
 pub mod directory;
 pub mod error;
 pub mod http;
+pub mod isolation;
 pub mod kcp_stream;
 pub mod relay;
 pub mod smux;
@@ -31,6 +32,7 @@ pub mod webrtc_stream;
 pub use client::TorClient;
 pub use config::TorClientOptions;
 pub use error::{TorError, Result};
+pub use isolation::{IsolationKey, StreamIsolationPolicy};
 
 // Re-export commonly used types
 pub use url::Url;
