@@ -12,7 +12,6 @@ yanked = "warn"
 # ignore = ["RUSTSEC-XXXX-XXXX"]
 
 [licenses]
-unlicensed = "deny"
 # Allow common permissive licenses
 allow = [
     "MIT",
@@ -24,25 +23,18 @@ allow = [
     "Zlib",
     "MPL-2.0",
     "Unicode-DFS-2016",
+    "Unicode-3.0",
     "CC0-1.0",
     "BSL-1.0",
 ]
-copyleft = "warn"
 # Confidence threshold for detecting license
 confidence-threshold = 0.8
 
 [bans]
 # Lint level for when multiple versions of a crate are found
 multiple-versions = "warn"
-# Lint level for when a crate version is yanked
+# Deny wildcard dependencies
 wildcards = "deny"
-# Allow specific crates to have multiple versions (document reason)
-# skip = []
-# Deny specific crates
-deny = [
-    # Example: { name = "openssl" } # We use pure Rust crypto
-]
-
 # Highlight crypto crates that should not have duplicates
 highlight = "all"
 
@@ -50,5 +42,3 @@ highlight = "all"
 unknown-registry = "deny"
 unknown-git = "warn"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# Allow specific git sources for patched crates
-allow-git = []
