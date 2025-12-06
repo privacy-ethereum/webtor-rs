@@ -43,7 +43,9 @@ cd example && npm install && npm run dev
 
 ## Style Preferences
 
+- **No emojis** in documentation, README, or markdown files - use plain text instead
 - Use plain ASCII characters (`+`, `-`, `|`) instead of Unicode box-drawing characters (┌, ─, │, etc.) for diagrams in markdown - they render more reliably across platforms
+- Use `[x]` for checkboxes, not emoji checkmarks
 
 ## Version Bumping
 

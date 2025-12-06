@@ -6,7 +6,7 @@ Webtor-rs is a complete Rust implementation of a Tor client designed to be compi
 
 **Key differentiator**: Unlike other browser Tor clients, webtor-rs uses the **official Arti crates** (Rust Tor implementation by the Tor Project) for protocol handling, ensuring security and correctness.
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 webtor-rs/
@@ -72,37 +72,37 @@ webtor-rs/
     └── arti/                    # Arti with WASM patches
 ```
 
-## 🏗️ Architecture
+## Architecture
 
 ### Protocol Stacks
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Application Layer                             │
-│                    (TorClient, HTTP requests)                        │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                         Tor Protocol                                 │
-│           (tor-proto: Channel, Circuit, Stream)                      │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-              ┌──────────────┴──────────────┐
-              │                             │
-              ▼                             ▼
-┌─────────────────────────┐   ┌─────────────────────────┐
-│     Snowflake           │   │      WebTunnel          │
-│   (WASM only)           │   │  (WASM + Native)        │
-├─────────────────────────┤   ├─────────────────────────┤
-│ WebRTC DataChannel      │   │ HTTPS + HTTP Upgrade    │
-│         ↓               │   │         ↓               │
-│ Turbo (framing)         │   │ TLS (rustls/SubtleCrypto)│
-│         ↓               │   │         ↓               │
-│ KCP (reliability)       │   │ TCP/WebSocket           │
-│         ↓               │   └─────────────────────────┘
-│ SMUX (multiplexing)     │
-└─────────────────────────┘
++---------------------------------------------------------------------+
+|                        Application Layer                             |
+|                    (TorClient, HTTP requests)                        |
++----------------------------+----------------------------------------+
+                             |
+                             v
++---------------------------------------------------------------------+
+|                         Tor Protocol                                 |
+|           (tor-proto: Channel, Circuit, Stream)                      |
++----------------------------+----------------------------------------+
+                             |
+              +--------------+--------------+
+              |                             |
+              v                             v
++-------------------------+   +-------------------------+
+|     Snowflake           |   |      WebTunnel          |
+|   (WASM only)           |   |  (WASM + Native)        |
++-------------------------+   +-------------------------+
+| WebRTC DataChannel      |   | HTTPS + HTTP Upgrade    |
+|         |               |   |         |               |
+| Turbo (framing)         |   | TLS (rustls/SubtleCrypto)|
+|         |               |   |         |               |
+| KCP (reliability)       |   | TCP/WebSocket           |
+|         |               |   +-------------------------+
+| SMUX (multiplexing)     |
++-------------------------+
 ```
 
 ### Core Components
@@ -140,9 +140,9 @@ webtor-rs/
    - Uses browser's SubtleCrypto for cryptographic operations
    - Proper certificate chain validation
 
-## Yes Completed Features
+## Completed Features
 
-### Phase 1 - Foundation Yes
+### Phase 1 - Foundation (Complete)
 - [x] Project structure with Cargo workspace
 - [x] WASM bindings with wasm-bindgen
 - [x] Error handling with custom types
@@ -150,7 +150,7 @@ webtor-rs/
 - [x] WebSocket implementation (WASM + Native)
 - [x] Demo webpage
 
-### Phase 2 - Tor Protocol Yes
+### Phase 2 - Tor Protocol (Complete)
 - [x] Arti integration (tor-proto, tor-netdoc, tor-llcrypto)
 - [x] Channel establishment with Tor handshake
 - [x] Circuit creation (CREATE2 with ntor-v3)
@@ -160,14 +160,14 @@ webtor-rs/
 - [x] Microdescriptor fetching
 - [x] Relay selection (guard, middle, exit)
 
-### Phase 3 - HTTP/TLS Yes
+### Phase 3 - HTTP/TLS (Complete)
 - [x] HTTP request/response through Tor streams
 - [x] TLS 1.3 support via SubtleCrypto (WASM)
 - [x] TLS support via rustls (Native)
 - [x] Proper certificate validation (P-256, P-384 curves)
 - [x] Request routing through exit relays
 
-### Phase 4 - Transports Yes
+### Phase 4 - Transports (Complete)
 - [x] **WebTunnel bridge** - Full implementation
   - [x] HTTPS connection with HTTP Upgrade
   - [x] TLS with SNI support
@@ -182,9 +182,9 @@ webtor-rs/
   - [x] Broker API client for proxy assignment
   - [x] Proper signaling flow (JSON-encoded SDP offer/answer)
 
-## 🚧 In Progress / Planned
+## In Progress / Planned
 
-### Phase 5 - Optimization ✅ Complete
+### Phase 5 - Optimization (Complete)
 - [x] WASM bundle size optimization (0.94 MB gzipped, was 1.30 MB)
 - [x] Circuit creation performance improvements
   - [x] Parallel microdescriptor fetching (CHUNK_SIZE=256, MAX_PARALLEL_CHUNKS=3)
@@ -195,7 +195,7 @@ webtor-rs/
 - [x] Criterion benchmarks for CPU-bound operations
 - [x] WebRTC connection retry for unreliable volunteer proxies
 
-### Phase 6 - Advanced Features ✅ Complete
+### Phase 6 - Advanced Features (Complete)
 - [x] TLS 1.2 support with automatic fallback (PR #13)
 - [x] Comprehensive E2E test suite (regression tests for all preset URLs)
 - [x] Performance benchmarks (Criterion + E2E via Playwright)
@@ -208,7 +208,7 @@ Open issues for future work:
 - [ ] Onion service (.onion) support (#23)
 - [ ] Security audit with Rocq formal verification (#25)
 
-## ⚠️ Known Limitations
+## Known Limitations
 
 ### TLS Version Support
 The WASM TLS implementation (`subtle-tls`) supports both TLS 1.3 and TLS 1.2:
@@ -217,35 +217,35 @@ The WASM TLS implementation (`subtle-tls`) supports both TLS 1.3 and TLS 1.2:
 
 Most modern sites work. Some legacy servers may have compatibility issues.
 
-## 📊 Current Status
+## Current Status
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Core Library | ✅ Complete | Full Tor protocol support |
-| WebTunnel | ✅ Complete | Works on WASM + Native |
-| Snowflake (WS) | ✅ Complete | Direct WebSocket to bridge |
-| Snowflake (WebRTC) | ✅ Complete | Via volunteer proxies (WASM) |
-| TLS/HTTPS | ✅ Complete | TLS 1.3 + 1.2 fallback |
-| Consensus | ✅ Complete | Fetching + parsing + caching |
-| Circuit Creation | ✅ Complete | 3-hop circuits with reuse |
-| HTTP Client | ✅ Complete | GET/POST support |
-| WASM Build | ✅ Working | 0.94 MB gzipped |
-| Demo App | ✅ Working | Interactive UI |
-| E2E Tests | ✅ Complete | Regression + benchmarks |
-| Fuzz Testing | ✅ Complete | 4 TLS parsing targets |
+| Core Library | Complete | Full Tor protocol support |
+| WebTunnel | Complete | Works on WASM + Native |
+| Snowflake (WS) | Complete | Direct WebSocket to bridge |
+| Snowflake (WebRTC) | Complete | Via volunteer proxies (WASM) |
+| TLS/HTTPS | Complete | TLS 1.3 + 1.2 fallback |
+| Consensus | Complete | Fetching + parsing + caching |
+| Circuit Creation | Complete | 3-hop circuits with reuse |
+| HTTP Client | Complete | GET/POST support |
+| WASM Build | Working | 0.94 MB gzipped |
+| Demo App | Working | Interactive UI |
+| E2E Tests | Complete | Regression + benchmarks |
+| Fuzz Testing | Complete | 4 TLS parsing targets |
 
-## 🔒 Security Features
+## Security Features
 
-- ✅ **TLS Certificate Validation** - Using webpki-roots + SubtleCrypto
-- ✅ **TLS 1.3 + 1.2 Support** - Automatic version negotiation
-- ✅ **ntor-v3 Handshake** - Modern key exchange
-- ✅ **CREATE2 Circuits** - Current Tor standard
-- ✅ **Memory Safety** - Rust guarantees
-- ✅ **Audited Crypto** - ring, dalek crates (native), SubtleCrypto (WASM)
-- ✅ **Correct Snowflake** - Proper WebRTC architecture via broker
-- ✅ **Fuzz Testing** - Continuous fuzzing of TLS parsing
+- **TLS Certificate Validation** - Using webpki-roots + SubtleCrypto
+- **TLS 1.3 + 1.2 Support** - Automatic version negotiation
+- **ntor-v3 Handshake** - Modern key exchange
+- **CREATE2 Circuits** - Current Tor standard
+- **Memory Safety** - Rust guarantees
+- **Audited Crypto** - ring, dalek crates (native), SubtleCrypto (WASM)
+- **Correct Snowflake** - Proper WebRTC architecture via broker
+- **Fuzz Testing** - Continuous fuzzing of TLS parsing
 
-## 📈 Performance Characteristics
+## Performance Characteristics
 
 | Metric | Value | Notes |
 |--------|-------|-------|
@@ -261,29 +261,29 @@ Most modern sites work. Some legacy servers may have compatibility issues.
 | Operation | Time | Notes |
 |-----------|------|-------|
 | make_circ_params | 35.8 ns | Circuit parameter construction |
-| select_guard_relay | 34.2 µs | From 1000 relays |
-| select_middle_relay | 22.8 µs | Fewer constraints |
-| select_exit_relay | 35.0 µs | Similar to guard |
-| X25519 key gen | 1.46 µs | Per key |
+| select_guard_relay | 34.2 us | From 1000 relays |
+| select_middle_relay | 22.8 us | Fewer constraints |
+| select_exit_relay | 35.0 us | Similar to guard |
+| X25519 key gen | 1.46 us | Per key |
 | ChaCha20-Poly1305 | 181.7 MB/s | 1KB payload |
 | SHA-256 | 223 ns | 64 bytes |
 
-**Key insight**: CPU operations are µs/ns scale; network latency (20-60s) dominates.
+**Key insight**: CPU operations are us/ns scale; network latency (20-60s) dominates.
 
-## 🆚 Comparison with Alternatives
+## Comparison with Alternatives
 
 See [COMPARISON.md](COMPARISON.md) for detailed comparison with echalote.
 
 | Feature | webtor-rs | echalote |
 |---------|-----------|----------|
-| Language | Rust → WASM | TypeScript |
+| Language | Rust -> WASM | TypeScript |
 | Tor Protocol | Official Arti | Custom |
-| TLS Validation | Yes Yes | No No |
-| Snowflake | Yes WebRTC (correct) | No Direct WS (wrong) |
-| WebTunnel | Yes Yes | No No |
+| TLS Validation | Yes | No |
+| Snowflake | WebRTC (correct) | Direct WS (wrong) |
+| WebTunnel | Yes | No |
 | Security | Production-grade | Experimental |
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 # Build
@@ -318,7 +318,7 @@ println!("Response: {}", response.text()?);
 client.close().await;
 ```
 
-## 🧪 Testing
+## Testing
 
 ```bash
 # Unit tests
@@ -331,7 +331,7 @@ cargo test -p webtor --test e2e -- --ignored --nocapture
 cargo test -p webtor --test e2e test_webtunnel_https_request -- --ignored --nocapture
 ```
 
-## 🐛 Known Issues & Fixes
+## Known Issues & Fixes
 
 ### TLS 1.3 Handshake Message Boundary Bug (FIXED)
 
@@ -359,7 +359,7 @@ cargo test -p webtor --test e2e test_webtunnel_https_request -- --ignored --noca
 
 **Fix**: Added ALPN extension advertising "http/1.1" in ClientHello.
 
-## 📝 Development Notes
+## Development Notes
 
 ### Bridge Sources
 - WebTunnel bridges: https://github.com/scriptzteam/Tor-Bridges-Collector/blob/main/bridges-webtunnel
