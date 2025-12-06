@@ -8,8 +8,15 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 unmaintained = "none"
 # yanked: "deny", "warn", "allow"
 yanked = "warn"
-# Allow specific advisories if needed (document reason)
-# ignore = ["RUSTSEC-XXXX-XXXX"]
+# Allow specific advisories (document reason)
+ignore = [
+    # RUSTSEC-2023-0071: rsa crate Marvin Attack timing sidechannel
+    # This is a transitive dependency from Arti (tor-llcrypto, tor-key-forge).
+    # No fix available upstream. We don't use RSA for network-facing decryption
+    # in webtor (only for relay identity verification), so timing attacks are
+    # not exploitable in our threat model.
+    "RUSTSEC-2023-0071",
+]
 
 [licenses]
 # Allow common permissive licenses
@@ -35,8 +42,9 @@ confidence-threshold = 0.8
 [bans]
 # Lint level for when multiple versions of a crate are found
 multiple-versions = "warn"
-# Deny wildcard dependencies
-wildcards = "deny"
+# Allow wildcard dependencies for workspace path dependencies
+# (subtle-tls is a local crate without a published version)
+wildcards = "allow"
 # Highlight crypto crates that should not have duplicates
 highlight = "all"
 
