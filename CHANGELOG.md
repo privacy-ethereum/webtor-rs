@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2025-12-11
+
 ### Added
 - WASM bindings: `post(url, body)` method for POST requests with raw body bytes
 - WASM bindings: `postJson(url, jsonBody)` convenience method for JSON-RPC (auto-sets Content-Type header)

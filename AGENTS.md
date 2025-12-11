@@ -70,3 +70,8 @@ cd subtle-tls/fuzz && cargo +nightly fuzz run fuzz_server_hello
 
 - **Always bump the UI version** in `webtor-demo/static/index.html` (footer) on any UI-related changes
 - Current version format: `v0.X.Y`
+
+## Release Workflow
+
+- **Create a release after every PR merged** to this repo
+- Steps: update CHANGELOG.md (move Unreleased to new version), create git tag, create GitHub release via `gh release create`
