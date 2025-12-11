@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 webtor = { path = "../webtor" }
+http = { workspace = true }
 
 # WASM bindings
 wasm-bindgen = { workspace = true }

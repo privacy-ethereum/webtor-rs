@@ -163,7 +163,7 @@ impl TorClient {
         })
     }
     
-    /// Make a fetch request through Tor
+    /// Make a fetch (GET) request through Tor
     #[wasm_bindgen(js_name = fetch)]
     pub fn fetch(&self, url: String) -> js_sys::Promise {
         console_log!(format!("Starting fetch request to: {}", url));
@@ -195,6 +195,143 @@ impl TorClient {
                 Err(e) => {
                     console_error!(format!("Fetch request failed: {}", e));
                     Err(JsValue::from_str(&format!("Fetch request failed: {}", e)))
+                }
+            }
+        })
+    }
+    
+    /// Make a POST request through Tor
+    #[wasm_bindgen(js_name = post)]
+    pub fn post(&self, url: String, body: Vec<u8>) -> js_sys::Promise {
+        console_log!(format!("Starting POST request to: {}", url));
+        
+        let client = match &self.inner {
+            Some(client) => client.clone(),
+            None => {
+                return future_to_promise(async move {
+                    Err(JsValue::from_str("TorClient is not initialized"))
+                });
+            }
+        };
+        
+        future_to_promise(async move {
+            match client.post(&url, body).await {
+                Ok(response) => {
+                    console_log!("POST request completed successfully");
+                    
+                    let js_response = JsHttpResponse {
+                        status: response.status,
+                        headers: serde_wasm_bindgen::to_value(&response.headers).unwrap(),
+                        body: response.body,
+                        url: response.url.to_string(),
+                    };
+                    
+                    Ok(JsValue::from(js_response))
+                }
+                Err(e) => {
+                    console_error!(format!("POST request failed: {}", e));
+                    Err(JsValue::from_str(&format!("POST request failed: {}", e)))
+                }
+            }
+        })
+    }
+    
+    /// Make a POST request with JSON body and Content-Type header (convenience for JSON-RPC)
+    #[wasm_bindgen(js_name = postJson)]
+    pub fn post_json(&self, url: String, json_body: String) -> js_sys::Promise {
+        console_log!(format!("Starting POST JSON request to: {}", url));
+        
+        let client = match &self.inner {
+            Some(client) => client.clone(),
+            None => {
+                return future_to_promise(async move {
+                    Err(JsValue::from_str("TorClient is not initialized"))
+                });
+            }
+        };
+        
+        future_to_promise(async move {
+            let mut headers = std::collections::HashMap::new();
+            headers.insert("Content-Type".to_string(), "application/json".to_string());
+            
+            match client.request(
+                http::Method::POST,
+                &url,
+                headers,
+                Some(json_body.into_bytes()),
+                None,
+            ).await {
+                Ok(response) => {
+                    console_log!("POST JSON request completed successfully");
+                    
+                    let js_response = JsHttpResponse {
+                        status: response.status,
+                        headers: serde_wasm_bindgen::to_value(&response.headers).unwrap(),
+                        body: response.body,
+                        url: response.url.to_string(),
+                    };
+                    
+                    Ok(JsValue::from(js_response))
+                }
+                Err(e) => {
+                    console_error!(format!("POST JSON request failed: {}", e));
+                    Err(JsValue::from_str(&format!("POST JSON request failed: {}", e)))
+                }
+            }
+        })
+    }
+    
+    /// Make a generic HTTP request with full control over method, headers, body, and timeout
+    #[wasm_bindgen(js_name = request)]
+    pub fn request(
+        &self,
+        method: String,
+        url: String,
+        headers: JsValue,
+        body: Option<Vec<u8>>,
+        timeout_ms: Option<u32>,
+    ) -> js_sys::Promise {
+        console_log!(format!("Starting {} request to: {}", method, url));
+        
+        let client = match &self.inner {
+            Some(client) => client.clone(),
+            None => {
+                return future_to_promise(async move {
+                    Err(JsValue::from_str("TorClient is not initialized"))
+                });
+            }
+        };
+        
+        future_to_promise(async move {
+            let method_parsed: http::Method = method.parse()
+                .map_err(|e| JsValue::from_str(&format!("Invalid HTTP method: {}", e)))?;
+            
+            let headers_map: std::collections::HashMap<String, String> = 
+                if headers.is_undefined() || headers.is_null() {
+                    std::collections::HashMap::new()
+                } else {
+                    serde_wasm_bindgen::from_value(headers)
+                        .map_err(|e| JsValue::from_str(&format!("Invalid headers object: {}", e)))?
+                };
+            
+            let timeout = timeout_ms.map(|ms| std::time::Duration::from_millis(ms as u64));
+            
+            match client.request(method_parsed, &url, headers_map, body, timeout).await {
+                Ok(response) => {
+                    console_log!("Request completed successfully");
+                    
+                    let js_response = JsHttpResponse {
+                        status: response.status,
+                        headers: serde_wasm_bindgen::to_value(&response.headers).unwrap(),
+                        body: response.body,
+                        url: response.url.to_string(),
+                    };
+                    
+                    Ok(JsValue::from(js_response))
+                }
+                Err(e) => {
+                    console_error!(format!("Request failed: {}", e));
+                    Err(JsValue::from_str(&format!("Request failed: {}", e)))
                 }
             }
         })
@@ -404,6 +541,21 @@ impl TorClient {
     pub async fn fetch_rust(&self, url: &str) -> Result<JsHttpResponse, String> {
         let client = self.inner.as_ref().ok_or("TorClient is not initialized")?;
         match client.fetch(url).await {
+            Ok(response) => {
+                Ok(JsHttpResponse {
+                    status: response.status,
+                    headers: serde_wasm_bindgen::to_value(&response.headers).unwrap(),
+                    body: response.body,
+                    url: response.url.to_string(),
+                })
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    pub async fn post_rust(&self, url: &str, body: Vec<u8>) -> Result<JsHttpResponse, String> {
+        let client = self.inner.as_ref().ok_or("TorClient is not initialized")?;
+        match client.post(url, body).await {
             Ok(response) => {
                 Ok(JsHttpResponse {
                     status: response.status,

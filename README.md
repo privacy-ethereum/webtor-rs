@@ -60,7 +60,49 @@ client.bootstrap().await?;
 let response = client.get("https://example.com/").await?;
 println!("{}", response.text()?);
 
+// POST request
+let body = b"key=value".to_vec();
+let response = client.post("https://httpbin.org/post", body).await?;
+
 client.close().await;
+```
+
+### WASM / JavaScript API
+
+```typescript
+import init, { TorClient, TorClientOptions } from 'webtor-wasm';
+
+await init();
+const options = TorClientOptions.snowflakeWebRtc();
+const client = await new TorClient(options);
+
+// GET request
+const response = await client.fetch('https://example.com/');
+console.log(await response.text());
+
+// POST request (raw body)
+const body = new TextEncoder().encode('key=value');
+const response = await client.post('https://httpbin.org/post', body);
+
+// POST JSON (convenience for JSON-RPC, auto-sets Content-Type)
+const response = await client.postJson('https://rpc.example.com', JSON.stringify({
+  jsonrpc: '2.0',
+  method: 'eth_blockNumber',
+  params: [],
+  id: 1
+}));
+const data = await response.json();
+
+// Full control: custom method, headers, body, timeout
+const response = await client.request(
+  'POST',
+  'https://api.example.com',
+  { 'Content-Type': 'application/json', 'Authorization': 'Bearer token' },
+  body,
+  30000  // timeout in ms
+);
+
+await client.close();
 ```
 
 ## Architecture

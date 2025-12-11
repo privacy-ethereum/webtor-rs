@@ -170,6 +170,33 @@ impl TorClient {
         self.http_client.request(request).await
     }
     
+    /// Make a generic HTTP request with full control over method, headers, body, and timeout
+    pub async fn request(
+        &self,
+        method: Method,
+        url: &str,
+        headers: std::collections::HashMap<String, String>,
+        body: Option<Vec<u8>>,
+        timeout: Option<Duration>,
+    ) -> Result<HttpResponse> {
+        let url = Url::parse(url)?;
+        let mut request = HttpRequest::new(url).with_method(method);
+        
+        for (key, value) in headers {
+            request = request.with_header(&key, &value);
+        }
+        
+        if let Some(body) = body {
+            request = request.with_body(body);
+        }
+        
+        if let Some(timeout) = timeout {
+            request = request.with_timeout(timeout);
+        }
+        
+        self.http_client.request(request).await
+    }
+    
     /// Update the circuit by creating a new one
     pub async fn update_circuit(&self, _deadline: Duration) -> Result<()> {
         info!("Creating new circuit...");
