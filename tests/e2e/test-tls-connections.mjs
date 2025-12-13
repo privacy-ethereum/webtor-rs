@@ -43,30 +43,35 @@ if (args.includes('--firefox')) {
 }
 
 // Test targets from demo presets (known Tor-friendly)
+// Tests marked as optional won't fail the suite if they timeout (external service issues)
 const TLS_TEST_TARGETS = [
     {
         name: 'Tor Check',
         url: 'https://check.torproject.org/',
         expectedInResponse: 'Congratulations',
         tlsVersion: 'any',
+        optional: false, // Core test
     },
     {
         name: 'HTTPBin user-agent',
         url: 'https://httpbin.org/user-agent',
         expectedInResponse: 'user-agent',
         tlsVersion: 'any',
+        optional: true, // External service, sometimes slow/unavailable
     },
     {
         name: 'Llama RPC (Ethereum)',
         url: 'https://eth.llamarpc.com',
         expectedInResponse: 'running',
         tlsVersion: 'any',
+        optional: true, // External service
     },
     {
         name: 'example.com',
         url: 'https://example.com/',
         expectedInResponse: 'Example Domain',
         tlsVersion: 'any',
+        optional: false, // Core test, highly available
     },
 ];
 
@@ -225,7 +230,7 @@ async function waitForCircuit(page) {
 }
 
 async function testTlsConnection(page, target) {
-    log(`Testing: ${target.name}`, 'info');
+    log(`Testing: ${target.name}${target.optional ? ' (optional)' : ''}`, 'info');
     
     const testResult = {
         name: target.name,
@@ -234,6 +239,7 @@ async function testTlsConnection(page, target) {
         status: 'pending',
         error: null,
         responseTime: null,
+        optional: target.optional || false,
     };
     
     try {
@@ -289,10 +295,17 @@ async function testTlsConnection(page, target) {
         }
         
     } catch (error) {
-        testResult.status = 'failed';
         testResult.error = error.message;
-        log(`FAILED: ${error.message}`, 'error');
-        results.failed++;
+        // For optional tests (external services), treat timeout as skipped not failed
+        if (target.optional && (error.message.includes('Timeout') || error.message.includes('timeout'))) {
+            testResult.status = 'skipped';
+            log(`SKIPPED (timeout - external service): ${error.message}`, 'warn');
+            results.skipped++;
+        } else {
+            testResult.status = 'failed';
+            log(`FAILED: ${error.message}`, 'error');
+            results.failed++;
+        }
     }
     
     results.tests.push(testResult);
