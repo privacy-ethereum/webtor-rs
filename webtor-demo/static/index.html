@@ -7,6 +7,23 @@
     <title>webtor-rs - Web Native Tor Client</title>
     <link rel="icon" href="tor.svg" type="image/svg+xml">
     <style>
+        /* Dracula Pro Color Palette */
+        :root {
+            --bg: #22212C;
+            --bg-dark: #1a1922;
+            --bg-light: #2d2c3a;
+            --selection: #454158;
+            --comment: #7970A9;
+            --fg: #F8F8F2;
+            --cyan: #80FFEA;
+            --green: #8AFF80;
+            --orange: #FFCA80;
+            --pink: #FF80BF;
+            --purple: #9580FF;
+            --red: #FF9580;
+            --yellow: #FFFF80;
+        }
+
         * { box-sizing: border-box; }
         html, body {
             height: 100%;
@@ -15,16 +32,16 @@
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             padding: 0;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            background: var(--bg);
             min-height: 100vh;
-            color: #e8e8e8;
+            color: var(--fg);
             display: flex;
             flex-direction: column;
         }
 
         .site-header {
-            background: rgba(0, 0, 0, 0.3);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--bg-dark);
+            border-bottom: 1px solid var(--selection);
             padding: 16px 5%;
         }
 
@@ -42,7 +59,7 @@
         .site-title {
             margin: 0;
             font-size: 22px;
-            background: linear-gradient(135deg, #9a4fd1, #7d33b8);
+            background: linear-gradient(135deg, var(--purple), var(--pink));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
@@ -50,11 +67,11 @@
         }
 
         .site-subtitle {
-            color: #a0a0a0;
+            color: var(--comment);
             font-size: 13px;
             margin-left: 12px;
             padding-left: 12px;
-            border-left: 1px solid rgba(255, 255, 255, 0.2);
+            border-left: 1px solid var(--selection);
         }
 
         .main-container {
@@ -69,11 +86,11 @@
         }
 
         .panel {
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--bg-light);
             border-radius: 12px;
             padding: 20px;
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--selection);
         }
 
         .section {
@@ -83,14 +100,14 @@
         .section-title {
             font-size: 14px;
             font-weight: 600;
-            color: #9a4fd1;
+            color: var(--purple);
             margin-bottom: 10px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
 
         .status-bar {
-            background: rgba(0, 0, 0, 0.3);
+            background: var(--bg-dark);
             border-radius: 8px;
             padding: 12px 16px;
             font-family: 'SF Mono', Monaco, monospace;
@@ -104,13 +121,13 @@
             width: 10px;
             height: 10px;
             border-radius: 50%;
-            background: #6c757d;
+            background: var(--comment);
             animation: pulse 2s infinite;
         }
 
-        .status-dot.ready { background: #28a745; }
-        .status-dot.loading { background: #ffc107; }
-        .status-dot.error { background: #dc3545; }
+        .status-dot.ready { background: var(--green); }
+        .status-dot.loading { background: var(--yellow); }
+        .status-dot.error { background: var(--red); }
 
         @keyframes pulse {
             0%, 100% { opacity: 1; }
@@ -124,14 +141,14 @@
         }
 
         button {
-            background: linear-gradient(135deg, #7d33b8, #9a4fd1);
-            color: white;
+            background: linear-gradient(135deg, var(--purple), var(--pink));
+            color: var(--bg);
             border: none;
             padding: 10px 18px;
             border-radius: 8px;
             cursor: pointer;
             font-size: 13px;
-            font-weight: 500;
+            font-weight: 600;
             transition: all 0.2s;
             display: flex;
             align-items: center;
@@ -140,7 +157,7 @@
 
         button:hover:not(:disabled) {
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(122, 51, 184, 0.4);
+            box-shadow: 0 4px 12px rgba(149, 128, 255, 0.4);
         }
 
         button:disabled {
@@ -149,23 +166,24 @@
         }
 
         button:focus-visible {
-            outline: 2px solid #fff;
+            outline: 2px solid var(--cyan);
             outline-offset: 2px;
         }
 
         button.secondary {
-            background: rgba(255, 255, 255, 0.1);
+            background: var(--selection);
+            color: var(--fg);
         }
 
         button.secondary:hover:not(:disabled) {
-            background: rgba(255, 255, 255, 0.2);
+            background: var(--comment);
             box-shadow: none;
         }
 
         label {
             display: block;
             font-size: 12px;
-            color: #c0c0c0;
+            color: var(--comment);
             margin-bottom: 6px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
@@ -174,18 +192,18 @@
         input, select {
             width: 100%;
             padding: 10px 12px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--selection);
             border-radius: 8px;
             font-size: 13px;
-            background: rgba(0, 0, 0, 0.3);
-            color: #e8e8e8;
+            background: var(--bg-dark);
+            color: var(--fg);
             transition: border-color 0.2s, outline 0.2s;
         }
 
         input:focus, select:focus {
-            outline: 2px solid #9a4fd1;
+            outline: 2px solid var(--purple);
             outline-offset: 2px;
-            border-color: #9a4fd1;
+            border-color: var(--purple);
         }
 
         select {
@@ -193,8 +211,8 @@
         }
 
         select option {
-            background: #1a1a2e;
-            color: #e8e8e8;
+            background: var(--bg);
+            color: var(--fg);
         }
 
         .input-group {
@@ -206,7 +224,7 @@
             display: flex;
             gap: 0;
             margin-bottom: 16px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid var(--selection);
         }
 
         .tab {
@@ -214,7 +232,7 @@
             cursor: pointer;
             font-size: 13px;
             font-weight: 500;
-            color: #a0a0a0;
+            color: var(--comment);
             border-bottom: 2px solid transparent;
             transition: all 0.2s;
             background: none;
@@ -222,14 +240,14 @@
         }
 
         .tab:hover {
-            color: #e8e8e8;
+            color: var(--fg);
             transform: none;
             box-shadow: none;
         }
 
         .tab.active {
-            color: #9a4fd1;
-            border-bottom-color: #9a4fd1;
+            color: var(--purple);
+            border-bottom-color: var(--purple);
         }
 
         .tab-content {
@@ -241,22 +259,22 @@
         }
 
         .request-section {
-            background: rgba(0, 0, 0, 0.2);
+            background: var(--bg-dark);
             border-radius: 8px;
             padding: 16px;
         }
 
         .request-info {
             font-size: 12px;
-            color: #a0a0a0;
+            color: var(--comment);
             margin-bottom: 14px;
             padding: 8px 12px;
-            background: rgba(0, 0, 0, 0.2);
+            background: var(--bg);
             border-radius: 6px;
         }
 
         .output-box {
-            background: rgba(0, 0, 0, 0.4);
+            background: var(--bg);
             border-radius: 6px;
             padding: 12px;
             margin-top: 12px;
@@ -268,12 +286,12 @@
             white-space: pre-wrap;
             word-break: break-word;
             overflow-wrap: anywhere;
-            color: #a0a0a0;
+            color: var(--comment);
         }
 
-        .output-box.success { color: #28a745; }
-        .output-box.error { color: #dc3545; }
-        .output-box.loading { color: #17a2b8; }
+        .output-box.success { color: var(--green); }
+        .output-box.error { color: var(--red); }
+        .output-box.loading { color: var(--cyan); }
 
         .log-panel {
             display: flex;
@@ -312,7 +330,7 @@
 
         .log-search-count {
             font-size: 11px;
-            color: #808080;
+            color: var(--comment);
             min-width: 60px;
         }
 
@@ -327,7 +345,7 @@
         .toggle-switch-track {
             width: 36px;
             height: 20px;
-            background: rgba(255, 255, 255, 0.15);
+            background: var(--selection);
             border-radius: 10px;
             position: relative;
             transition: background 0.2s;
@@ -336,7 +354,7 @@
         .toggle-switch-thumb {
             width: 16px;
             height: 16px;
-            background: #a0a0a0;
+            background: var(--comment);
             border-radius: 50%;
             position: absolute;
             top: 2px;
@@ -345,26 +363,26 @@
         }
 
         .toggle-switch.active .toggle-switch-track {
-            background: rgba(154, 79, 209, 0.4);
+            background: rgba(149, 128, 255, 0.4);
         }
 
         .toggle-switch.active .toggle-switch-thumb {
             left: 18px;
-            background: #9a4fd1;
+            background: var(--purple);
         }
 
         .toggle-switch-label {
             font-size: 12px;
-            color: #a0a0a0;
+            color: var(--comment);
         }
 
         .toggle-switch.active .toggle-switch-label {
-            color: #9a4fd1;
+            color: var(--purple);
         }
 
         .log-output {
             flex: 1;
-            background: rgba(0, 0, 0, 0.4);
+            background: var(--bg);
             border-radius: 8px;
             padding: 12px;
             font-family: 'SF Mono', Monaco, monospace;
@@ -384,25 +402,25 @@
         }
 
         .log-entry.highlight {
-            background: rgba(154, 79, 209, 0.2);
+            background: rgba(149, 128, 255, 0.2);
             border-radius: 2px;
         }
 
-        .log-time { color: #808080; }
-        .log-info { color: #28a745; }
-        .log-warn { color: #ffc107; }
-        .log-error { color: #dc3545; }
-        .log-debug { color: #808080; }
+        .log-time { color: var(--comment); }
+        .log-info { color: var(--green); }
+        .log-warn { color: var(--yellow); }
+        .log-error { color: var(--red); }
+        .log-debug { color: var(--comment); }
 
         .empty-state {
-            color: #606060;
+            color: var(--selection);
             font-style: italic;
         }
 
         /* Circuit Display */
         .circuit-display {
             display: none;
-            background: rgba(0, 0, 0, 0.2);
+            background: var(--bg-dark);
             border-radius: 8px;
             padding: 12px 16px;
             margin-top: 12px;
@@ -424,7 +442,7 @@
             flex: 0 1 auto;
             min-width: 100px;
             max-width: 160px;
-            background: rgba(0, 0, 0, 0.3);
+            background: var(--bg);
             border-radius: 6px;
             padding: 10px 12px;
             text-align: center;
@@ -434,34 +452,34 @@
         }
 
         .circuit-target {
-            background: rgba(59, 130, 246, 0.2);
-            border: 1px solid rgba(59, 130, 246, 0.4);
+            background: rgba(128, 255, 234, 0.15);
+            border: 1px solid rgba(128, 255, 234, 0.4);
         }
 
         .circuit-target .circuit-relay-role {
-            color: #3b82f6;
+            color: var(--cyan);
         }
 
         .circuit-you {
-            background: rgba(40, 167, 69, 0.2);
-            border: 1px solid rgba(40, 167, 69, 0.4);
+            background: rgba(138, 255, 128, 0.15);
+            border: 1px solid rgba(138, 255, 128, 0.4);
         }
 
         .circuit-you .circuit-relay-role {
-            color: #28a745;
+            color: var(--green);
         }
 
         .circuit-relay-role {
             font-size: 10px;
             text-transform: uppercase;
             letter-spacing: 1px;
-            color: #9a4fd1;
+            color: var(--purple);
             margin-bottom: 4px;
         }
 
         .circuit-relay-nickname {
             font-weight: 600;
-            color: #e8e8e8;
+            color: var(--fg);
             font-size: 11px;
             margin-bottom: 2px;
             word-break: break-word;
@@ -471,12 +489,12 @@
         .circuit-relay-address {
             font-family: 'SF Mono', Monaco, monospace;
             font-size: 10px;
-            color: #808080;
+            color: var(--comment);
             word-break: break-all;
         }
 
         .circuit-arrow {
-            color: #9a4fd1;
+            color: var(--purple);
             font-size: 18px;
             flex-shrink: 0;
             display: flex;
@@ -493,8 +511,8 @@
         }
 
         .site-footer {
-            background: rgba(0, 0, 0, 0.5);
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--bg-dark);
+            border-top: 1px solid var(--selection);
             padding: 12px 5%;
             position: sticky;
             bottom: 0;
@@ -506,17 +524,17 @@
             justify-content: space-between;
             align-items: center;
             font-size: 12px;
-            color: #808080;
+            color: var(--comment);
         }
 
         .site-footer a {
-            color: #9a4fd1;
+            color: var(--purple);
             text-decoration: none;
             transition: color 0.2s;
         }
 
         .site-footer a:hover {
-            color: #b87fe8;
+            color: var(--pink);
             text-decoration: underline;
         }
 
@@ -705,7 +723,7 @@
     <!-- Site Footer -->
     <footer class="site-footer">
         <div class="site-footer-inner">
-            <span>v0.5.0</span>
+            <span>v0.6.0</span>
             <div class="footer-links">
                 <a href="https://github.com/igor53627/webtor-rs" target="_blank" rel="noopener noreferrer">GitHub</a>
                 <a href="https://github.com/igor53627/webtor-rs#features" target="_blank" rel="noopener noreferrer">Features</a>
