@@ -183,7 +183,15 @@ where
                         ((data[1] as usize) << 16) | ((data[2] as usize) << 8) | (data[3] as usize);
 
                     if msg_type == HANDSHAKE_SERVER_HELLO {
-                        return Ok(data[4..4 + length].to_vec());
+                        let total_len = 4 + length;
+                        if data.len() < total_len {
+                            return Err(TlsError::handshake(format!(
+                                "ServerHello message truncated: expected {} bytes, got {}",
+                                total_len,
+                                data.len()
+                            )));
+                        }
+                        return Ok(data[4..total_len].to_vec());
                     } else {
                         return Err(TlsError::UnexpectedMessage {
                             expected: "ServerHello".to_string(),
