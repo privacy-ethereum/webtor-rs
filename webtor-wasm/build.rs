@@ -9,6 +9,7 @@ use std::path::Path;
 fn main() {
     println!("cargo:rerun-if-changed=../webtor/Cargo.toml");
     println!("cargo:rerun-if-changed=../subtle-tls/Cargo.toml");
+    println!("cargo:rerun-if-changed=../vendor/arti/crates/arti/Cargo.toml");
     println!("cargo:rerun-if-changed=../vendor/arti/crates/tor-proto/Cargo.toml");
 
     // Extract subtle-tls version
@@ -20,10 +21,11 @@ fn main() {
         extract_version("../vendor/arti/crates/tor-proto/Cargo.toml").unwrap_or("0.37.0");
     println!("cargo:rustc-env=TOR_PROTO_VERSION={}", tor_proto_version);
 
-    // Extract arti version from tor-proto (they're released together)
-    // Arti version is typically 1.x.0 where tor-proto is 0.x.0, offset by ~29
-    // e.g., tor-proto 0.37.0 -> arti 1.8.0
-    let arti_version = derive_arti_version(&tor_proto_version);
+    // Prefer reading Arti's version directly from vendored sources to avoid drift.
+    // Fallback to derivation if the file isn't present.
+    let arti_version = extract_version("../vendor/arti/crates/arti/Cargo.toml")
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| derive_arti_version(tor_proto_version));
     println!("cargo:rustc-env=ARTI_VERSION={}", arti_version);
 }
 
