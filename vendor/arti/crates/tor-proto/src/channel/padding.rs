@@ -28,8 +28,8 @@
 //! so all our channels are client-to-guard or client-to-directory.
 
 use std::pin::Pin;
-// TODO, coarsetime maybe?  But see arti#496 and also we want to use the mockable SleepProvider
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use tor_rtcompat::Instant;
 
 use derive_builder::Builder;
 use educe::Educe;

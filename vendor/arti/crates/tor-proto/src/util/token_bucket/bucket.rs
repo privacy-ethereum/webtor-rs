@@ -1,7 +1,8 @@
 //! A token bucket implementation.
 
 use std::fmt::Debug;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use tor_rtcompat::Instant;
 
 /// A token bucket.
 ///

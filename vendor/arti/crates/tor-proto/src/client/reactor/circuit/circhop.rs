@@ -35,7 +35,7 @@ use tracing::instrument;
 use std::result::Result as StdResult;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::Poll;
-use std::time::Instant;
+use tor_rtcompat::Instant;
 
 #[cfg(test)]
 use tor_cell::relaycell::msg::SendmeTag;
