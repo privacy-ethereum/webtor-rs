@@ -4673,7 +4673,7 @@ dependencies = [
 
 [[package]]
 name = "webtor"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4734,7 +4734,7 @@ dependencies = [
 
 [[package]]
 name = "webtor-demo"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "js-sys",
@@ -4752,7 +4752,7 @@ dependencies = [
 
 [[package]]
 name = "webtor-wasm"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",

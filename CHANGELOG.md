@@ -7,9 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-12-13
+
+### Added
+- Arti 1.8.0 compatibility with updated tracing-subscriber (RUSTSEC-2025-0055 fix)
+- Documented congestion control parameters in circuit.rs
+
 ### Changed
 - Circuit padding: silently drop unexpected padding cells instead of erroring
   (receive-only tolerance for future Tor network compatibility)
+
+### Fixed
+- E2E tests: mark external service tests (HTTPBin, Llama RPC) as optional to avoid flaky CI failures
 
 ## [0.2.2] - 2025-12-11
 

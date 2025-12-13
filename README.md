@@ -1,5 +1,6 @@
 # webtor-rs
 
+[![CI](https://github.com/igor53627/webtor-rs/actions/workflows/test.yml/badge.svg)](https://github.com/igor53627/webtor-rs/actions/workflows/test.yml)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/igor53627/webtor-rs)
 
 A browser-focused Tor client written in Rust and compiled to WebAssembly (WASM), with optional native support. It enables anonymous HTTP/HTTPS connections through the Tor network directly from web browsers, without requiring plugins, extensions, or native applications.

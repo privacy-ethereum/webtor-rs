@@ -1,0 +1,54 @@
+{
+  "repo_notes": [
+    {
+      "topic": "Architecture",
+      "content": "webtor-rs is a browser-focused Tor client written in Rust. Core crates: webtor (main library), webtor-wasm (WASM bindings), webtor-demo (demo app with embedded consensus), subtle-tls (TLS 1.2/1.3 via SubtleCrypto for WASM)."
+    },
+    {
+      "topic": "Tor Protocol",
+      "content": "Uses vendored arti crates from vendor/arti/. Key dependency is tor-proto for circuit creation with CREATE2 and ntor-v3 handshakes. Circuit management in webtor/src/circuit.rs."
+    },
+    {
+      "topic": "Transports",
+      "content": "Two bridge transports: Snowflake (WebSocket + WebRTC via volunteer proxies) for WASM only, WebTunnel (HTTPS Upgrade) for WASM + native. Transport code in webtor/src/transport/."
+    },
+    {
+      "topic": "Consensus",
+      "content": "Consensus data embedded at compile time from webtor/src/cached/. Updated daily via GitHub Action (daily-consensus-update.yml). Online fetch with 1h caching also supported."
+    },
+    {
+      "topic": "TLS",
+      "content": "WASM uses subtle-tls (SubtleCrypto-based TLS 1.3/1.2). Native uses rustls. Ring crate doesn't compile to WASM, hence the custom implementation."
+    },
+    {
+      "topic": "Circuit Padding",
+      "content": "As of v0.3.0, webtor-rs silently drops unexpected padding cells for forward compatibility with future Tor network behavior. Full maybenot integration pending."
+    },
+    {
+      "topic": "Testing",
+      "content": "Unit tests: cargo test -p webtor. Property tests with proptest. E2E browser tests in tests/e2e/ using Playwright. Fuzz tests in subtle-tls/fuzz/."
+    },
+    {
+      "topic": "Build",
+      "content": "Run ./build.sh for full WASM build. Use wasm-pack for individual crates. Native builds via cargo build. See AGENTS.md for specific commands."
+    }
+  ],
+  "pages": [
+    {
+      "name": "Getting Started",
+      "source": "README.md"
+    },
+    {
+      "name": "Changelog",
+      "source": "CHANGELOG.md"
+    },
+    {
+      "name": "Project Summary",
+      "source": "PROJECT_SUMMARY.md"
+    },
+    {
+      "name": "Comparison with echalote",
+      "source": "COMPARISON.md"
+    }
+  ]
+}
