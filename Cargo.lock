@@ -4145,6 +4145,7 @@ dependencies = [
  "hkdf",
  "hmac",
  "itertools 0.14.0",
+ "js-sys",
  "nonany",
  "oneshot-fused-workaround",
  "pin-project",
@@ -4179,6 +4180,7 @@ dependencies = [
  "typenum",
  "visibility",
  "void",
+ "web-time",
  "zeroize",
 ]
 
@@ -4683,7 +4685,7 @@ dependencies = [
 
 [[package]]
 name = "webtor"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4744,7 +4746,7 @@ dependencies = [
 
 [[package]]
 name = "webtor-demo"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "js-sys",
@@ -4762,7 +4764,7 @@ dependencies = [
 
 [[package]]
 name = "webtor-wasm"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",

@@ -474,7 +474,7 @@ impl ClientCirc {
     /// NOTE that the Instant returned by this method is not affected by
     /// any runtime mocking; it is the output of an ordinary call to
     /// `Instant::now()`.
-    pub async fn disused_since(&self) -> Result<Option<std::time::Instant>> {
+    pub async fn disused_since(&self) -> Result<Option<tor_rtcompat::Instant>> {
         let (tx, rx) = oneshot::channel();
         self.command
             .unbounded_send(CtrlCmd::GetTunnelActivity { sender: tx })

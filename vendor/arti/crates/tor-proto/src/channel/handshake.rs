@@ -25,6 +25,12 @@ use digest::Digest;
 
 use tracing::{debug, instrument, trace};
 
+// Type alias for instant - use web_time on WASM since coarsetime doesn't support it
+#[cfg(not(target_arch = "wasm32"))]
+type HandshakeInstant = coarsetime::Instant;
+#[cfg(target_arch = "wasm32")]
+type HandshakeInstant = web_time::Instant;
+
 /// A list of the link protocols that we support.
 pub(crate) static LINK_PROTOCOLS: &[u16] = &[4, 5];
 
@@ -50,7 +56,7 @@ where
     async fn send_versions_cell<F>(
         &mut self,
         now_fn: F,
-    ) -> Result<(coarsetime::Instant, SystemTime)>
+    ) -> Result<(HandshakeInstant, SystemTime)>
     where
         F: FnOnce() -> SystemTime,
     {
@@ -64,7 +70,7 @@ where
         );
         self.framed_tls().send(version_cell).await?;
         Ok((
-            coarsetime::Instant::now(), // Flushed at instant
+            HandshakeInstant::now(), // Flushed at instant
             now_fn(),                   // Flushed at wallclock
         ))
     }
@@ -132,11 +138,11 @@ where
     ) -> Result<(
         Option<msg::AuthChallenge>,
         msg::Certs,
-        (msg::Netinfo, coarsetime::Instant),
+        (msg::Netinfo, HandshakeInstant),
     )> {
         let mut auth_challenge_cell: Option<msg::AuthChallenge> = None;
         let mut certs_cell: Option<msg::Certs> = None;
-        let mut netinfo_cell: Option<(msg::Netinfo, coarsetime::Instant)> = None;
+        let mut netinfo_cell: Option<(msg::Netinfo, HandshakeInstant)> = None;
 
         // IMPORTANT: Protocol wise, we MUST only allow one single cell of each type for a valid
         // handshake. Any duplicates lead to a failure. They can arrive in any order unfortunately.
@@ -170,7 +176,7 @@ where
                             "Somehow tried to record a duplicate NETINFO cell"
                         )));
                     }
-                    netinfo_cell = Some((n, coarsetime::Instant::now()));
+                    netinfo_cell = Some((n, HandshakeInstant::now()));
                     break;
                 }
                 // This should not happen because the ChannelFrame makes sure that only allowed cell on
@@ -596,8 +602,8 @@ impl<
 /// that you have authenticated the other party.
 pub(crate) fn unauthenticated_clock_skew(
     netinfo_cell: &msg::Netinfo,
-    netinfo_rcvd_at: coarsetime::Instant,
-    versions_flushed_at: coarsetime::Instant,
+    netinfo_rcvd_at: HandshakeInstant,
+    versions_flushed_at: HandshakeInstant,
     versions_flushed_wallclock: SystemTime,
 ) -> ClockSkew {
     // Try to compute our clock skew.  It won't be authenticated yet, since we haven't checked

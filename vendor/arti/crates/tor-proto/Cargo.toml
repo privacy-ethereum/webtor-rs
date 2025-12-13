@@ -141,6 +141,11 @@ typenum = "1.12"
 visibility = { version = "0.1.0" }
 void = "1"
 zeroize = "1"
+# WASM compatibility: web_time for Instant, js_sys for Date::now()
+web-time = "1.1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
 
 [target.'cfg(any(target_arch = "x86", target_arch = "x86_64"))'.dependencies]
 criterion-cycles-per-byte = "0.7.0"

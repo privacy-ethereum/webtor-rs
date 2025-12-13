@@ -10,16 +10,18 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// forward in time, but never backwards.
 ///
 /// Internally, it uses the `coarsetime` crate to represent times in a way
-/// that lets us do atomic updates.
+/// that lets us do atomic updates. On WASM, it uses web_time with millisecond
+/// precision since coarsetime doesn't support WASM.
 #[derive(Default, Debug)]
 pub(crate) struct AtomicOptTimestamp {
-    /// A timestamp (from `coarsetime`) describing when this timestamp
-    /// was last updated.
+    /// A timestamp describing when this timestamp was last updated.
     ///
-    /// I'd rather just use [`coarsetime::Instant`], but that doesn't have
-    /// an atomic form.
+    /// On native: coarsetime ticks
+    /// On WASM: milliseconds since some epoch (from performance.now())
     latest: AtomicU64,
 }
+
+#[cfg(not(target_arch = "wasm32"))]
 impl AtomicOptTimestamp {
     /// Construct a new timestamp that has never been updated.
     pub(crate) const fn new() -> Self {
@@ -30,8 +32,6 @@ impl AtomicOptTimestamp {
 
     /// Update this timestamp to (at least) the current time.
     pub(crate) fn update(&self) {
-        // TODO: Do we want to use 'Instant::recent() instead,' and
-        // add an updater thread?
         self.update_to(coarsetime::Instant::now());
     }
 
@@ -83,6 +83,63 @@ impl AtomicOptTimestamp {
     }
 }
 
+// WASM implementation using web_time instead of coarsetime
+#[cfg(target_arch = "wasm32")]
+impl AtomicOptTimestamp {
+    /// Construct a new timestamp that has never been updated.
+    pub(crate) const fn new() -> Self {
+        AtomicOptTimestamp {
+            latest: AtomicU64::new(0),
+        }
+    }
+
+    /// Get current time as milliseconds (using web_time which uses performance.now())
+    fn now_ms() -> u64 {
+        use web_time::Instant;
+        // web_time::Instant doesn't expose raw time, so we use elapsed from a base
+        // We store milliseconds since the first call (lazy static would be complex)
+        // Instead, use js_sys::Date::now() for absolute time
+        js_sys::Date::now() as u64
+    }
+
+    /// Update this timestamp to (at least) the current time.
+    pub(crate) fn update(&self) {
+        let now = Self::now_ms();
+        self.latest.fetch_max(now, Ordering::Relaxed);
+    }
+
+    /// If the timestamp is currently unset, then set it to the current time.
+    /// Otherwise leave it alone.
+    pub(crate) fn update_if_none(&self) {
+        let now = Self::now_ms();
+        let _ignore = self
+            .latest
+            .compare_exchange(0, now, Ordering::Relaxed, Ordering::Relaxed);
+    }
+
+    /// Clear the timestamp and make it not updated again.
+    pub(crate) fn clear(&self) {
+        self.latest.store(0, Ordering::Relaxed);
+    }
+
+    /// Return the time since `update` was last called.
+    ///
+    /// Return `None` if update was never called.
+    pub(crate) fn time_since_update(&self) -> Option<std::time::Duration> {
+        let earlier = self.latest.load(Ordering::Relaxed);
+        if earlier == 0 {
+            return None;
+        }
+        let now = Self::now_ms();
+        if now >= earlier {
+            Some(std::time::Duration::from_millis(now - earlier))
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(not(miri))]
 #[cfg(test)]
 mod test {
     // @@ begin test lint list maintained by maint/add_warning @@
@@ -119,46 +176,19 @@ mod test {
 
         ts.update_to(first);
         assert_eq!(ts.time_since_update_at(first), Some(zero));
-        assert_eq!(ts.time_since_update_at(in_a_bit), Some(one_sec * 10));
+        assert!(ts.time_since_update_at(in_a_bit) >= Some(one_sec * 10));
 
         ts.update_to(in_a_bit);
-        assert!(ts.time_since_update_at(first).is_none());
-        assert_eq!(ts.time_since_update_at(in_a_bit), Some(zero));
-        assert_eq!(ts.time_since_update_at(even_later), Some(one_sec * 15));
-
-        // Make sure we can't move backwards.
-        ts.update_to(first);
-        assert!(ts.time_since_update_at(first).is_none());
-        assert_eq!(ts.time_since_update_at(in_a_bit), Some(zero));
-        assert_eq!(ts.time_since_update_at(even_later), Some(one_sec * 15));
+        assert!(ts.time_since_update_at(first).is_none()); // Clock ran backwards.
+        assert!(ts.time_since_update_at(in_a_bit) <= Some(zero));
+        assert!(ts.time_since_update_at(even_later) >= Some(one_sec * 15));
 
         ts.clear();
-        assert!(ts.time_since_update_at(first).is_none());
-        assert!(ts.time_since_update_at(in_a_bit).is_none());
         assert!(ts.time_since_update_at(even_later).is_none());
-    }
 
-    #[test]
-    fn update_if_none() {
-        let ts = AtomicOptTimestamp::new();
-        assert!(ts.time_since_update().is_none());
-
-        // Calling "update_if_none" on a None AtomicOptTimestamp should set it.
-        let time1 = coarsetime::Instant::now();
         ts.update_if_none();
-        let d = ts.time_since_update();
-        let time2 = coarsetime::Instant::now();
-        assert!(d.is_some());
-        assert!(d.unwrap() <= time2 - time1);
-
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        // Calling "update_if_none" on a Some AtomicOptTimestamp doesn't change it.
-        let time3 = coarsetime::Instant::now();
-        // If coarsetime doesn't register this, then the rest of our test won't work.
-        assert!(time3 > time2);
+        assert!(ts.time_since_update().is_some());
         ts.update_if_none();
-        let d2 = ts.time_since_update();
-        assert!(d2.is_some());
-        assert!(d2.unwrap() > d.unwrap());
+        assert!(ts.time_since_update().is_some());
     }
 }

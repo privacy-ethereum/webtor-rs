@@ -1,7 +1,9 @@
 //! Helpers for tracking whether a tunnel or circuit is still active.
 
 use derive_deftly::Deftly;
-use std::{num::NonZeroUsize, time::Instant};
+use std::num::NonZeroUsize;
+// Use web_time::Instant for WASM compatibility (re-exports std::time::Instant on non-WASM)
+use web_time::Instant;
 
 /// An object to track whether a tunnel or circuit should still be considered active.
 ///

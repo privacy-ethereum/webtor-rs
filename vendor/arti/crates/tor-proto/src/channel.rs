@@ -89,6 +89,12 @@ use tor_linkspec::{HasRelayIds, OwnedChanTarget};
 use tor_memquota::mq_queue::{self, ChannelSpec as _, MpscSpec};
 use tor_rtcompat::{CoarseTimeProvider, DynTimeProvider, SleepProvider, StreamOps};
 
+// Type alias for opened_at timestamp - use web_time on WASM since coarsetime doesn't support it
+#[cfg(not(target_arch = "wasm32"))]
+type OpenedAtInstant = coarsetime::Instant;
+#[cfg(target_arch = "wasm32")]
+type OpenedAtInstant = web_time::Instant;
+
 #[cfg(feature = "circ-padding")]
 use tor_async_utils::counting_streams::{self, CountingSink, CountingStream};
 
@@ -259,7 +265,7 @@ pub struct Channel {
     /// created.
     clock_skew: ClockSkew,
     /// The time when this channel was successfully completed
-    opened_at: coarsetime::Instant,
+    opened_at: OpenedAtInstant,
     /// Mutable state used by the `Channel.
     mutable: Mutex<MutableDetails>,
 
@@ -608,7 +614,7 @@ impl Channel {
             unique_id,
             peer_id,
             clock_skew,
-            opened_at: coarsetime::Instant::now(),
+            opened_at: OpenedAtInstant::now(),
             mutable: Mutex::new(mutable),
             details: Arc::clone(&details),
         });
@@ -968,7 +974,7 @@ impl Channel {
             unique_id,
             peer_id,
             clock_skew: ClockSkew::None,
-            opened_at: coarsetime::Instant::now(),
+            opened_at: OpenedAtInstant::now(),
             mutable: Default::default(),
             details,
         };
@@ -1095,7 +1101,7 @@ pub(crate) mod test {
             unique_id,
             peer_id,
             clock_skew: ClockSkew::None,
-            opened_at: coarsetime::Instant::now(),
+            opened_at: OpenedAtInstant::now(),
             mutable: Default::default(),
             details: fake_channel_details(),
         }
