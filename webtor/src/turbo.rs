@@ -17,7 +17,7 @@
 //! - Bits 6-0: 7 bits of length
 
 use crate::error::{Result, TorError};
-use futures::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
+use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -38,11 +38,17 @@ pub struct TurboFrame {
 
 impl TurboFrame {
     pub fn new(data: Vec<u8>) -> Self {
-        Self { data, is_padding: false }
+        Self {
+            data,
+            is_padding: false,
+        }
     }
 
     pub fn padding(data: Vec<u8>) -> Self {
-        Self { data, is_padding: true }
+        Self {
+            data,
+            is_padding: true,
+        }
     }
 
     /// Encode frame to bytes with variable-length header
@@ -92,7 +98,7 @@ impl TurboFrame {
         }
 
         let byte0 = buf[0];
-        let is_data = (byte0 & 0x80) != 0;  // Bit 7: data flag
+        let is_data = (byte0 & 0x80) != 0; // Bit 7: data flag
         let is_padding = !is_data;
         let has_cont = (byte0 & 0x40) != 0; // Bit 6: continuation
 
@@ -129,7 +135,10 @@ impl TurboFrame {
         };
 
         if len > MAX_FRAME_SIZE {
-            return Err(TorError::Protocol(format!("Turbo frame too large: {}", len)));
+            return Err(TorError::Protocol(format!(
+                "Turbo frame too large: {}",
+                len
+            )));
         }
 
         let total_size = header_size + len;
@@ -183,9 +192,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> TurboStream<S> {
         init_data.extend_from_slice(&TURBO_TOKEN);
         init_data.extend_from_slice(&self.client_id);
 
-        self.inner.write_all(&init_data).await
+        self.inner
+            .write_all(&init_data)
+            .await
             .map_err(|e| TorError::Network(format!("Failed to send Turbo init: {}", e)))?;
-        self.inner.flush().await
+        self.inner
+            .flush()
+            .await
             .map_err(|e| TorError::Network(format!("Failed to flush Turbo init: {}", e)))?;
 
         self.initialized = true;
@@ -203,7 +216,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> TurboStream<S> {
         let frame = TurboFrame::new(data.to_vec());
         let encoded = frame.encode();
 
-        self.inner.write_all(&encoded).await
+        self.inner
+            .write_all(&encoded)
+            .await
             .map_err(|e| TorError::Network(format!("Failed to send Turbo frame: {}", e)))?;
 
         Ok(())
@@ -225,7 +240,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> TurboStream<S> {
 
             // Need more data
             let mut temp = [0u8; 4096];
-            let n = self.inner.read(&mut temp).await
+            let n = self
+                .inner
+                .read(&mut temp)
+                .await
                 .map_err(|e| TorError::Network(format!("Failed to read Turbo data: {}", e)))?;
 
             if n == 0 {
@@ -273,7 +291,12 @@ impl<S: AsyncRead + Unpin> AsyncRead for TurboStream<S> {
                     return Poll::Ready(Ok(len));
                 }
                 Ok(None) => break, // Need more data
-                Err(e) => return Poll::Ready(Err(io::Error::new(io::ErrorKind::InvalidData, e.to_string()))),
+                Err(e) => {
+                    return Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        e.to_string(),
+                    )))
+                }
             }
         }
 
@@ -300,11 +323,18 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for TurboStream<S> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        // Encode as a Turbo frame
+        // NOTE: We encode the entire frame and expect it to be written atomically.
+        // Partial writes will return WriteZero error. This is acceptable because:
+        // 1. Turbo frames are small and TCP usually handles them atomically
+        // 2. Proper partial-write buffering would add significant complexity
+        // 3. On WriteZero error, the connection is corrupted - callers must reconnect, not retry
         let frame = TurboFrame::new(buf.to_vec());
         let encoded = frame.encode();
-        tracing::info!("Turbo poll_write: {} bytes data -> {} byte frame", 
-               buf.len(), encoded.len());
+        tracing::info!(
+            "Turbo poll_write: {} bytes data -> {} byte frame",
+            buf.len(),
+            encoded.len()
+        );
 
         // Write all encoded data
         match Pin::new(&mut self.inner).poll_write(cx, &encoded) {
@@ -345,7 +375,7 @@ mod tests {
         let encoded = frame.encode();
 
         // Should be 1-byte header for small data (13 bytes < 64)
-        assert_eq!(encoded[0] & 0x40, 0);    // No continuation (bit 6)
+        assert_eq!(encoded[0] & 0x40, 0); // No continuation (bit 6)
         assert_eq!(encoded[0] & 0x80, 0x80); // Is data (bit 7)
 
         let (decoded, consumed) = TurboFrame::decode(&encoded).unwrap().unwrap();
@@ -363,7 +393,7 @@ mod tests {
         // Should be 2-byte header
         assert_eq!(encoded[0] & 0x40, 0x40); // Has continuation (bit 6)
         assert_eq!(encoded[0] & 0x80, 0x80); // Is data (bit 7)
-        assert_eq!(encoded[1] & 0x80, 0);    // No more continuation (bit 7)
+        assert_eq!(encoded[1] & 0x80, 0); // No more continuation (bit 7)
 
         let (decoded, consumed) = TurboFrame::decode(&encoded).unwrap().unwrap();
         assert_eq!(decoded.data, data);
@@ -380,7 +410,7 @@ mod tests {
         assert_eq!(encoded[0] & 0x40, 0x40); // Has continuation (bit 6)
         assert_eq!(encoded[0] & 0x80, 0x80); // Is data (bit 7)
         assert_eq!(encoded[1] & 0x80, 0x80); // Has continuation (bit 7)
-        assert_eq!(encoded[2] & 0x80, 0);    // No more continuation (bit 7)
+        assert_eq!(encoded[2] & 0x80, 0); // No more continuation (bit 7)
 
         let (decoded, consumed) = TurboFrame::decode(&encoded).unwrap().unwrap();
         assert_eq!(decoded.data, data);
@@ -497,7 +527,7 @@ mod tests {
             // Actually, MAX_FRAME_SIZE = 1 << 20 = 1048576
             // 0xFFFFF = 1048575, which is < MAX_FRAME_SIZE, so it passes
             // We need a length > 1048576, but 3-byte max is 1048575
-            // 
+            //
             // The only way to exceed is if the code changes or we have a 4-byte header
             // For now, test that max valid header (0xFFFFF) is accepted
             let header = [
@@ -509,7 +539,7 @@ mod tests {
             // Without the data, it returns None (need more data), not an error
             let result = TurboFrame::decode(&header);
             assert!(result.unwrap().is_none()); // Need more data
-            
+
             // Test that we can't construct a frame that would be > MAX_FRAME_SIZE
             // since the protocol limits to 20 bits (max 0xFFFFF < 0x100000)
         }

@@ -19,7 +19,9 @@
 
 use crate::error::{Result, TorError};
 use futures::{AsyncRead, AsyncWrite};
-use futures_rustls::rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use futures_rustls::rustls::client::danger::{
+    HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
+};
 use futures_rustls::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use futures_rustls::rustls::{ClientConfig, DigitallySignedStruct, SignatureScheme};
 use std::io;
@@ -27,7 +29,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tokio_util::compat::{TokioAsyncReadCompatExt, Compat};
+use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 use tracing::{debug, info};
 use url::Url;
 
@@ -76,7 +78,7 @@ impl WebTunnelBridge {
     }
 
     /// Connect to the WebTunnel bridge
-    /// 
+    ///
     /// Performs:
     /// 1. TCP connection
     /// 2. TLS handshake
@@ -86,53 +88,58 @@ impl WebTunnelBridge {
         use rustls_pki_types::ServerName;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::TcpStream;
-        
+
         let url = Url::parse(&self.config.url)
             .map_err(|e| TorError::Configuration(format!("Invalid URL: {}", e)))?;
-        
-        let host = url.host_str()
+
+        let host = url
+            .host_str()
             .ok_or_else(|| TorError::Configuration("URL missing host".to_string()))?;
         let port = url.port().unwrap_or(443);
         let path = url.path();
-        
-        info!("Connecting to WebTunnel bridge at {}:{}{}", host, port, path);
-        
+
+        info!(
+            "Connecting to WebTunnel bridge at {}:{}{}",
+            host, port, path
+        );
+
         // 1. Connect TCP
         let tcp_stream = TcpStream::connect(format!("{}:{}", host, port))
             .await
             .map_err(|e| TorError::Network(format!("TCP connection failed: {}", e)))?;
-        
+
         debug!("TCP connected to {}:{}", host, port);
-        
+
         // 2. Setup TLS
         let mut root_store = rustls::RootCertStore::empty();
         root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        
+
         let config = rustls::ClientConfig::builder()
             .with_root_certificates(root_store)
             .with_no_client_auth();
-        
+
         let connector = tokio_rustls::TlsConnector::from(std::sync::Arc::new(config));
-        
+
         // Use custom SNI if provided, otherwise use host from URL
         let sni_host = self.config.server_name.as_deref().unwrap_or(host);
         let server_name = ServerName::try_from(sni_host.to_string())
             .map_err(|e| TorError::Configuration(format!("Invalid server name: {}", e)))?;
-        
-        let mut tls_stream = connector.connect(server_name, tcp_stream)
+
+        let mut tls_stream = connector
+            .connect(server_name, tcp_stream)
             .await
             .map_err(|e| TorError::Network(format!("TLS handshake failed: {}", e)))?;
-        
+
         debug!("TLS connected");
-        
+
         // 3. Send HTTP Upgrade request with WebSocket-like headers
         // Note: We send Sec-WebSocket-Key for compatibility, but the server
         // may not validate or return Sec-WebSocket-Accept (WebTunnel doesn't require it)
         let ws_key = base64::Engine::encode(
             &base64::engine::general_purpose::STANDARD,
-            &rand::random::<[u8; 16]>()
+            &rand::random::<[u8; 16]>(),
         );
-        
+
         let request = format!(
             "GET {} HTTP/1.1\r\n\
             Host: {}\r\n\
@@ -143,62 +150,68 @@ impl WebTunnelBridge {
             \r\n",
             path, host, ws_key
         );
-        
+
         debug!("Sending HTTP Upgrade request");
-        
-        tls_stream.write_all(request.as_bytes())
+
+        tls_stream
+            .write_all(request.as_bytes())
             .await
             .map_err(|e| TorError::Network(format!("Failed to send upgrade request: {}", e)))?;
-        tls_stream.flush()
+        tls_stream
+            .flush()
             .await
             .map_err(|e| TorError::Network(format!("Failed to flush upgrade request: {}", e)))?;
-        
+
         // 4. Read response headers
         let mut response = Vec::new();
         let mut byte = [0u8; 1];
-        
+
         loop {
-            tls_stream.read_exact(&mut byte)
+            tls_stream
+                .read_exact(&mut byte)
                 .await
                 .map_err(|e| TorError::Network(format!("Failed to read response: {}", e)))?;
             response.push(byte[0]);
-            
+
             // Look for end of headers
-            if response.len() >= 4 && &response[response.len()-4..] == b"\r\n\r\n" {
+            if response.len() >= 4 && &response[response.len() - 4..] == b"\r\n\r\n" {
                 break;
             }
-            
+
             if response.len() > 8192 {
                 return Err(TorError::Network("Response headers too long".to_string()));
             }
         }
-        
+
         let response_str = String::from_utf8_lossy(&response);
-        debug!("HTTP response: {}", response_str.lines().next().unwrap_or("(empty)"));
-        
+        debug!(
+            "HTTP response: {}",
+            response_str.lines().next().unwrap_or("(empty)")
+        );
+
         // Check for 101 Switching Protocols
         if !response_str.contains("101") {
             return Err(TorError::Network(format!(
-                "Expected 101 Switching Protocols, got: {}", 
+                "Expected 101 Switching Protocols, got: {}",
                 response_str.lines().next().unwrap_or("(empty)")
             )));
         }
-        
+
         // Verify Upgrade and Connection headers
         let response_lower = response_str.to_lowercase();
         if !response_lower.contains("upgrade") || !response_lower.contains("connection") {
             return Err(TorError::Network(format!(
-                "Missing Upgrade/Connection headers in response: {}", 
+                "Missing Upgrade/Connection headers in response: {}",
                 response_str
             )));
         }
-        
+
         info!("WebTunnel HTTP Upgrade complete, establishing Tor link TLS");
-        
+
         // 5. Establish Tor link TLS over the tunneled connection
         // This is the INNER TLS layer - from client directly to Tor relay.
         // The WebTunnel bridge forwards these bytes to the Tor ORPort.
-        // 
+        //
         // Tor's link TLS uses self-signed certificates that are validated
         // via CERTS cells during the channel handshake, not via WebPKI.
         // So we use a custom verifier that accepts any certificate.
@@ -206,24 +219,25 @@ impl WebTunnelBridge {
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(TorCertVerifier))
             .with_no_client_auth();
-        
+
         let tor_connector = futures_rustls::TlsConnector::from(Arc::new(tor_tls_config));
-        
+
         // Wrap the outer TLS stream for futures compatibility
         let compat_stream = tls_stream.compat();
-        
+
         // Use a random hostname for SNI (Tor relays don't care about SNI)
         // Some bridges may log SNI so we use something innocuous
         let sni = ServerName::try_from("www.example.com".to_string())
             .map_err(|e| TorError::Configuration(format!("Invalid SNI: {}", e)))?;
-        
+
         debug!("Starting Tor link TLS handshake");
-        let tor_tls_stream = tor_connector.connect(sni, compat_stream)
+        let tor_tls_stream = tor_connector
+            .connect(sni, compat_stream)
             .await
             .map_err(|e| TorError::Network(format!("Tor link TLS handshake failed: {}", e)))?;
-        
+
         info!("Tor link TLS established, ready for channel handshake");
-        
+
         Ok(WebTunnelStream {
             inner: tor_tls_stream,
         })
@@ -231,7 +245,7 @@ impl WebTunnelBridge {
 }
 
 /// Custom certificate verifier for Tor link TLS
-/// 
+///
 /// Tor relays use self-signed certificates. The actual authentication happens
 /// via CERTS cells during the Tor channel handshake, not via the TLS layer.
 /// This verifier accepts any certificate, leaving validation to the Tor protocol.
@@ -250,7 +264,7 @@ impl ServerCertVerifier for TorCertVerifier {
         // Accept any certificate - Tor validates via CERTS cells
         Ok(ServerCertVerified::assertion())
     }
-    
+
     fn verify_tls12_signature(
         &self,
         _message: &[u8],
@@ -260,7 +274,7 @@ impl ServerCertVerifier for TorCertVerifier {
         // Accept signature - Tor validates via CERTS cells
         Ok(HandshakeSignatureValid::assertion())
     }
-    
+
     fn verify_tls13_signature(
         &self,
         _message: &[u8],
@@ -270,7 +284,7 @@ impl ServerCertVerifier for TorCertVerifier {
         // Accept signature - Tor validates via CERTS cells
         Ok(HandshakeSignatureValid::assertion())
     }
-    
+
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
         // Support common signature schemes
         vec![
@@ -289,7 +303,7 @@ impl ServerCertVerifier for TorCertVerifier {
 }
 
 /// Type aliases for the nested TLS stream
-/// 
+///
 /// The stream architecture is:
 /// - TCP socket
 /// - Outer TLS (tokio_rustls, HTTPS to WebTunnel bridge)
@@ -300,13 +314,13 @@ type CompatOuterTlsStream = Compat<OuterTlsStream>;
 type TorLinkTlsStream = futures_rustls::client::TlsStream<CompatOuterTlsStream>;
 
 /// WebTunnel stream for Tor communication
-/// 
+///
 /// This wraps a Tor link TLS stream that is tunneled through WebTunnel.
 /// The architecture is:
 /// - Outer TLS: Client ↔ WebTunnel bridge (validates bridge cert via WebPKI)
 /// - HTTP Upgrade: Mimics WebSocket to bypass protocol filters
 /// - Inner TLS: Client ↔ Tor relay (tunneled, uses TorCertVerifier)
-/// 
+///
 /// The inner TLS stream implements futures::io::AsyncRead/Write which
 /// tor_proto expects for the channel handshake.
 pub struct WebTunnelStream {
@@ -315,7 +329,7 @@ pub struct WebTunnelStream {
 
 impl WebTunnelStream {
     /// Get the peer certificate from the Tor link TLS connection
-    /// 
+    ///
     /// This returns the DER-encoded certificate of the Tor relay.
     /// Used by tor_proto during the channel handshake to verify
     /// that the CERTS cells properly authenticate this certificate.
@@ -325,7 +339,7 @@ impl WebTunnelStream {
             .peer_certificates()
             .and_then(|certs| certs.first().map(|c| Vec::from(c.as_ref()))))
     }
-    
+
     /// Close the WebTunnel stream
     pub async fn close(&mut self) -> io::Result<()> {
         use futures::AsyncWriteExt;
@@ -334,7 +348,12 @@ impl WebTunnelStream {
     }
 }
 
-// TorLinkTlsStream is Send + Sync 
+// SAFETY: WebTunnelStream wraps TorLinkTlsStream which is:
+// - futures_rustls::client::TlsStream<Compat<tokio_rustls::client::TlsStream<TcpStream>>>
+// - All inner types (TcpStream, tokio_rustls::TlsStream, Compat, futures_rustls::TlsStream)
+//   implement Send + Sync when their generic parameters do
+// - tokio::net::TcpStream is Send + Sync
+// - This is required because tor_proto::Channel requires Send + Sync bounds on its transport
 unsafe impl Send for WebTunnelStream {}
 unsafe impl Sync for WebTunnelStream {}
 
@@ -346,7 +365,7 @@ impl tor_rtcompat::CertifiedConn for WebTunnelStream {
     fn peer_certificate(&self) -> io::Result<Option<Vec<u8>>> {
         self.get_peer_certificate()
     }
-    
+
     fn export_keying_material(
         &self,
         len: usize,
@@ -416,21 +435,19 @@ mod tests {
 
     #[test]
     fn test_config_with_timeout() {
-        let config = WebTunnelConfig::new(
-            "https://example.com/path".to_string(),
-            "AAAA".repeat(10),
-        ).with_timeout(Duration::from_secs(60));
-        
+        let config =
+            WebTunnelConfig::new("https://example.com/path".to_string(), "AAAA".repeat(10))
+                .with_timeout(Duration::from_secs(60));
+
         assert_eq!(config.connection_timeout, Duration::from_secs(60));
     }
 
     #[test]
     fn test_config_with_server_name() {
-        let config = WebTunnelConfig::new(
-            "https://example.com/path".to_string(),
-            "AAAA".repeat(10),
-        ).with_server_name("custom.example.com".to_string());
-        
+        let config =
+            WebTunnelConfig::new("https://example.com/path".to_string(), "AAAA".repeat(10))
+                .with_server_name("custom.example.com".to_string());
+
         assert_eq!(config.server_name, Some("custom.example.com".to_string()));
     }
 }

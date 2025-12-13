@@ -795,11 +795,28 @@
     <footer class="site-footer">
         <div class="site-footer-inner">
             <span class="version-info">
-                UI v0.7.0 | WASM v0.4.0 | 
+                UI v0.7.2 | 
                 <span class="version-tooltip-container">
-                    <span class="version-tooltip-trigger">Arti 1.8.0 (?)</span>
+                    <span class="version-tooltip-trigger" id="webtor-version-trigger">webtor v0.4.0 (?)</span>
                     <div class="version-tooltip">
-                        <div class="version-tooltip-title">Arti Crates (vendored)</div>
+                        <div class="version-tooltip-title">Our Crates</div>
+                        <div class="version-tooltip-list" id="our-crates-list">
+                            <span class="version-tooltip-crate">webtor</span>
+                            <span class="version-tooltip-ver" id="ver-webtor">0.4.0</span>
+                            <span class="version-tooltip-crate">webtor-wasm</span>
+                            <span class="version-tooltip-ver" id="ver-webtor-wasm">0.4.0</span>
+                            <span class="version-tooltip-crate">webtor-demo</span>
+                            <span class="version-tooltip-ver" id="ver-webtor-demo">0.4.0</span>
+                            <span class="version-tooltip-crate">subtle-tls</span>
+                            <span class="version-tooltip-ver" id="ver-subtle-tls">0.1.0</span>
+                        </div>
+                    </div>
+                </span>
+                 | 
+                <span class="version-tooltip-container">
+                    <span class="version-tooltip-trigger" id="arti-version-trigger">Arti 1.8.0 (?)</span>
+                    <div class="version-tooltip">
+                        <div class="version-tooltip-title">Vendored Arti Crates</div>
                         <div class="version-tooltip-list">
                             <span class="version-tooltip-crate">tor-proto</span>
                             <span class="version-tooltip-ver">0.37.0</span>
@@ -833,7 +850,7 @@
     </footer>
 
     <script type="module">
-        import init, { DemoApp, setLogCallback, setDebugEnabled, runTorBenchmark, runQuickBenchmark } from './pkg/webtor_demo.js';
+        import init, { DemoApp, setLogCallback, setDebugEnabled, runTorBenchmark, runQuickBenchmark, getVersionInfo } from './pkg/webtor_demo.js';
 
         // Constants
         const MAX_LOG_ENTRIES = 1000;
@@ -1070,6 +1087,34 @@
 
                 await init();
                 logCallback('INFO', 'init', 'WASM module loaded');
+
+                // Update version info from WASM
+                try {
+                    const versionInfo = getVersionInfo();
+                    if (versionInfo) {
+                        const webtorTrigger = document.getElementById('webtor-version-trigger');
+                        const artiTrigger = document.getElementById('arti-version-trigger');
+                        if (webtorTrigger && versionInfo.webtor) {
+                            webtorTrigger.textContent = `webtor v${versionInfo.webtor} (?)`;
+                        }
+                        if (artiTrigger && versionInfo.arti_version) {
+                            artiTrigger.textContent = `Arti ${versionInfo.arti_version} (?)`;
+                        }
+                        // Update individual version numbers
+                        const updates = [
+                            ['ver-webtor', versionInfo.webtor],
+                            ['ver-webtor-wasm', versionInfo.webtor_wasm],
+                            ['ver-webtor-demo', versionInfo.webtor_wasm],
+                            ['ver-subtle-tls', versionInfo.subtle_tls],
+                        ];
+                        updates.forEach(([id, ver]) => {
+                            const el = document.getElementById(id);
+                            if (el && ver) el.textContent = ver;
+                        });
+                    }
+                } catch (e) {
+                    console.warn('Failed to get version info:', e);
+                }
                 
                 // Expose benchmark functions for e2e tests
                 window.webtor_demo = {

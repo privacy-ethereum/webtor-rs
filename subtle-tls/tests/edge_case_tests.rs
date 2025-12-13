@@ -9,7 +9,7 @@ wasm_bindgen_test_configure!(run_in_browser);
 mod parsing_edge_cases {
     use super::*;
     use subtle_tls::handshake::{
-        parse_handshake_header, parse_certificate, parse_certificate_verify, parse_finished,
+        parse_certificate, parse_certificate_verify, parse_finished, parse_handshake_header,
     };
 
     #[wasm_bindgen_test]
@@ -77,7 +77,7 @@ mod parsing_edge_cases {
     async fn test_certificate_verify_valid() {
         let mut data = vec![0x08, 0x04, 0x00, 0x04]; // RSA-PSS-SHA256, 4 byte sig
         data.extend_from_slice(&[0xAA, 0xBB, 0xCC, 0xDD]);
-        
+
         let (algo, sig) = parse_certificate_verify(&data).unwrap();
         assert_eq!(algo, 0x0804);
         assert_eq!(sig, vec![0xAA, 0xBB, 0xCC, 0xDD]);
@@ -135,7 +135,7 @@ mod crypto_edge_cases {
     async fn test_x25519_zero_key_rejected() {
         let keypair = X25519KeyPair::generate().unwrap();
         let zero_key = vec![0u8; 32];
-        
+
         // Deriving with all-zero key should still work (it's a valid point)
         // but the result should be checked by the protocol layer
         let result = keypair.derive_shared_secret(&zero_key);
@@ -148,7 +148,7 @@ mod crypto_edge_cases {
     async fn test_x25519_short_key_rejected() {
         let keypair = X25519KeyPair::generate().unwrap();
         let short_key = vec![0u8; 16]; // Too short
-        
+
         let result = keypair.derive_shared_secret(&short_key);
         assert!(result.is_err());
     }
@@ -157,7 +157,7 @@ mod crypto_edge_cases {
     async fn test_x25519_long_key_rejected() {
         let keypair = X25519KeyPair::generate().unwrap();
         let long_key = vec![0u8; 64]; // Too long
-        
+
         let result = keypair.derive_shared_secret(&long_key);
         assert!(result.is_err());
     }
@@ -171,15 +171,15 @@ mod cipher_edge_cases {
     async fn test_aes_gcm_empty_plaintext() {
         let key = vec![0x42u8; 16];
         let cipher = AesGcm::new_128(&key).await.unwrap();
-        
+
         let nonce = vec![0x01u8; 12];
         let aad = b"aad";
         let plaintext = b"";
-        
+
         let ciphertext = cipher.encrypt(&nonce, aad, plaintext).await.unwrap();
         // Should be just the 16-byte auth tag
         assert_eq!(ciphertext.len(), 16);
-        
+
         let decrypted = cipher.decrypt(&nonce, aad, &ciphertext).await.unwrap();
         assert_eq!(decrypted, plaintext);
     }
@@ -188,11 +188,11 @@ mod cipher_edge_cases {
     async fn test_aes_gcm_empty_aad() {
         let key = vec![0x42u8; 16];
         let cipher = AesGcm::new_128(&key).await.unwrap();
-        
+
         let nonce = vec![0x01u8; 12];
         let aad = b"";
         let plaintext = b"test";
-        
+
         let ciphertext = cipher.encrypt(&nonce, aad, plaintext).await.unwrap();
         let decrypted = cipher.decrypt(&nonce, aad, &ciphertext).await.unwrap();
         assert_eq!(decrypted, plaintext);
@@ -202,7 +202,7 @@ mod cipher_edge_cases {
     async fn test_aes_gcm_wrong_nonce_length() {
         let key = vec![0x42u8; 16];
         let cipher = AesGcm::new_128(&key).await.unwrap();
-        
+
         let short_nonce = vec![0x01u8; 8]; // Should be 12
         let result = cipher.encrypt(&short_nonce, b"", b"test").await;
         // Behavior depends on implementation - just ensure no panic
@@ -213,11 +213,11 @@ mod cipher_edge_cases {
     async fn test_chacha20_poly1305_empty() {
         let key = vec![0x42u8; 32];
         let cipher = Cipher::chacha20_poly1305(&key).unwrap();
-        
+
         let nonce = vec![0x01u8; 12];
         let ciphertext = cipher.encrypt(&nonce, b"", b"").await.unwrap();
         assert_eq!(ciphertext.len(), 16); // Just the tag
-        
+
         let decrypted = cipher.decrypt(&nonce, b"", &ciphertext).await.unwrap();
         assert!(decrypted.is_empty());
     }

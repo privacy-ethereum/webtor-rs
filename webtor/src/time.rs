@@ -91,5 +91,5 @@ mod platform {
     }
 }
 
-pub use platform::Instant;
 pub use platform::system_time_now;
+pub use platform::Instant;

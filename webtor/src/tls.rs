@@ -28,16 +28,16 @@ use tracing::{debug, info};
 #[cfg(not(target_arch = "wasm32"))]
 pub fn create_tls_connector() -> Result<TlsConnector> {
     let mut root_store = RootCertStore::empty();
-    
+
     // Add webpki root certificates
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    
+
     debug!("Loaded {} root certificates", root_store.len());
-    
+
     let config = ClientConfig::builder()
         .with_root_certificates(root_store)
         .with_no_client_auth();
-    
+
     Ok(TlsConnector::from(Arc::new(config)))
 }
 
@@ -51,19 +51,19 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send,
 {
     info!("Initiating TLS handshake with {}", domain);
-    
+
     let connector = create_tls_connector()?;
-    
+
     let server_name = ServerName::try_from(domain.to_string())
         .map_err(|e| TorError::tls(format!("Invalid server name '{}': {}", domain, e)))?;
-    
+
     let tls_stream = connector
         .connect(server_name, stream)
         .await
         .map_err(|e| TorError::tls(format!("TLS handshake failed: {}", e)))?;
-    
+
     info!("TLS handshake completed with {}", domain);
-    
+
     Ok(tls_stream)
 }
 
@@ -128,35 +128,34 @@ impl TlsStream {
     /// Connect to a host via TLS
     pub async fn connect(host: &str, port: u16, server_name: &str) -> Result<Self> {
         use tokio::net::TcpStream;
-        
+
         info!("Connecting to {}:{} (SNI: {})", host, port, server_name);
-        
+
         // 1. Establish TCP connection
         let addr = format!("{}:{}", host, port);
         let tcp_stream = TcpStream::connect(&addr)
             .await
             .map_err(|e| TorError::Network(format!("TCP connection failed to {}: {}", addr, e)))?;
-        
+
         debug!("TCP connection established to {}", addr);
-        
+
         // 2. Wrap with TLS
         let connector = create_tls_connector()?;
         let sni = ServerName::try_from(server_name.to_string())
             .map_err(|e| TorError::tls(format!("Invalid server name '{}': {}", server_name, e)))?;
-        
+
         // Wrap tokio TcpStream in our compat wrapper
         let compat_stream = TokioCompatStream { inner: tcp_stream };
-        
-        let tls_stream = connector
-            .connect(sni, compat_stream)
-            .await
-            .map_err(|e| TorError::tls(format!("TLS handshake failed with {}: {}", server_name, e)))?;
-        
+
+        let tls_stream = connector.connect(sni, compat_stream).await.map_err(|e| {
+            TorError::tls(format!("TLS handshake failed with {}: {}", server_name, e))
+        })?;
+
         info!("TLS connection established to {}:{}", host, port);
-        
+
         Ok(Self { inner: tls_stream })
     }
-    
+
     /// Close the stream
     pub async fn close(&mut self) -> io::Result<()> {
         use futures::io::AsyncWriteExt;
@@ -205,9 +204,11 @@ pub struct TlsStream {
 #[cfg(target_arch = "wasm32")]
 impl TlsStream {
     pub async fn connect(_host: &str, _port: u16, _server_name: &str) -> Result<Self> {
-        Err(TorError::Internal("Direct TLS connections not supported in WASM - use WebSocket".to_string()))
+        Err(TorError::Internal(
+            "Direct TLS connections not supported in WASM - use WebSocket".to_string(),
+        ))
     }
-    
+
     pub async fn close(&mut self) -> io::Result<()> {
         Ok(())
     }
@@ -220,7 +221,10 @@ impl AsyncRead for TlsStream {
         _cx: &mut Context<'_>,
         _buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, "Not supported in WASM")))
+        Poll::Ready(Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Not supported in WASM",
+        )))
     }
 }
 
@@ -231,22 +235,31 @@ impl AsyncWrite for TlsStream {
         _cx: &mut Context<'_>,
         _buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, "Not supported in WASM")))
+        Poll::Ready(Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Not supported in WASM",
+        )))
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, "Not supported in WASM")))
+        Poll::Ready(Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Not supported in WASM",
+        )))
     }
 
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, "Not supported in WASM")))
+        Poll::Ready(Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Not supported in WASM",
+        )))
     }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_create_tls_connector() {
         let connector = create_tls_connector();

@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 mod benchmark_utils {
     use super::*;
-    
+
     pub struct BenchmarkResult {
         pub name: String,
         pub duration: Duration,
@@ -20,14 +20,20 @@ mod benchmark_utils {
 
     impl BenchmarkResult {
         pub fn print(&self) {
-            let status = if self.success { "" } else { "" };
-            println!("{} {} - {:?} ({} iterations)", status, self.name, self.duration, self.iterations);
+            let status = if self.success { "[OK]" } else { "[FAIL]" };
+            println!(
+                "{} {} - {:?} ({} iterations)",
+                status, self.name, self.duration, self.iterations
+            );
             if !self.details.is_empty() {
                 println!("   Details: {}", self.details);
             }
         }
 
         pub fn avg_duration(&self) -> Duration {
+            if self.iterations == 0 {
+                return Duration::ZERO;
+            }
             self.duration / self.iterations
         }
     }
@@ -73,7 +79,7 @@ async fn main() {
 
 async fn run_benchmarks() {
     use webtor::{TorClient, TorClientOptions};
-    
+
     // Check for WebTunnel configuration
     let webtunnel_url = std::env::var("WEBTUNNEL_URL").ok();
     let webtunnel_fingerprint = std::env::var("WEBTUNNEL_FINGERPRINT").ok();
@@ -85,7 +91,7 @@ async fn run_benchmarks() {
         println!("   export WEBTUNNEL_URL='https://example.com/secret-path'");
         println!("   export WEBTUNNEL_FINGERPRINT='AABBCCDD...'");
         println!("\n   Running limited benchmarks only...\n");
-        
+
         // Run crypto benchmarks only
         run_crypto_benchmarks().await;
         return;
@@ -102,9 +108,11 @@ async fn run_benchmarks() {
     let result = benchmark_utils::time_async("TorClient::new (no early connect)", 5, || async {
         let options = TorClientOptions::webtunnel(url.clone(), fingerprint.clone())
             .with_create_circuit_early(false);
-        TorClient::new(options).await
+        TorClient::new(options)
+            .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
-    }).await;
+    })
+    .await;
     result.print();
     println!("   Average: {:?}", result.avg_duration());
     println!();
@@ -116,7 +124,7 @@ async fn run_benchmarks() {
         .with_create_circuit_early(true)
         .with_connection_timeout(30_000)
         .with_circuit_timeout(120_000);
-    
+
     match TorClient::new(options).await {
         Ok(client) => {
             let connect_time = start.elapsed();
@@ -131,7 +139,7 @@ async fn run_benchmarks() {
                     println!(" Fetch completed in {:?}", fetch_time);
                     println!("   Status: {}", response.status);
                     println!("   Body: {}", String::from_utf8_lossy(&response.body));
-                    
+
                     // Benchmark 4: Multiple fetches (connection reuse)
                     println!("\n--- Benchmark: Multiple Fetches (connection reuse) ---");
                     let multi_start = Instant::now();
@@ -140,8 +148,12 @@ async fn run_benchmarks() {
                         let iter_start = Instant::now();
                         match client.fetch("https://httpbin.org/ip").await {
                             Ok(resp) => {
-                                println!("   Fetch {} completed in {:?} - {}", 
-                                    i + 1, iter_start.elapsed(), resp.status);
+                                println!(
+                                    "   Fetch {} completed in {:?} - {}",
+                                    i + 1,
+                                    iter_start.elapsed(),
+                                    resp.status
+                                );
                                 success_count += 1;
                             }
                             Err(e) => {
@@ -150,7 +162,10 @@ async fn run_benchmarks() {
                         }
                     }
                     let multi_time = multi_start.elapsed();
-                    println!("   Total: {:?} ({}/3 successful)", multi_time, success_count);
+                    println!(
+                        "   Total: {:?} ({}/3 successful)",
+                        multi_time, success_count
+                    );
                 }
                 Err(e) => {
                     println!(" Fetch failed: {}", e);
@@ -171,9 +186,9 @@ async fn run_benchmarks() {
 
 async fn run_crypto_benchmarks() {
     use std::time::Instant;
-    
+
     println!("--- Benchmark: Cryptographic Operations ---");
-    
+
     // X25519 key generation
     {
         let iterations = 1000;
@@ -182,14 +197,21 @@ async fn run_crypto_benchmarks() {
             let _ = x25519_dalek::EphemeralSecret::random_from_rng(rand::rngs::OsRng);
         }
         let elapsed = start.elapsed();
-        println!("   X25519 key generation: {:?} / {} iterations ({:?} avg)",
-            elapsed, iterations, elapsed / iterations);
+        println!(
+            "   X25519 key generation: {:?} / {} iterations ({:?} avg)",
+            elapsed,
+            iterations,
+            elapsed / iterations
+        );
     }
 
     // ChaCha20-Poly1305 encryption
     {
-        use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce, aead::{Aead, KeyInit}};
-        
+        use chacha20poly1305::{
+            aead::{Aead, KeyInit},
+            ChaCha20Poly1305, Key, Nonce,
+        };
+
         let iterations = 10000;
         let key = Key::from_slice(&[0u8; 32]);
         let cipher = ChaCha20Poly1305::new(key);
@@ -202,14 +224,16 @@ async fn run_crypto_benchmarks() {
         }
         let elapsed = start.elapsed();
         let throughput = (iterations as f64 * 1024.0) / elapsed.as_secs_f64() / 1_000_000.0;
-        println!("   ChaCha20-Poly1305 encrypt (1KB): {:?} / {} iterations ({:.2} MB/s)",
-            elapsed, iterations, throughput);
+        println!(
+            "   ChaCha20-Poly1305 encrypt (1KB): {:?} / {} iterations ({:.2} MB/s)",
+            elapsed, iterations, throughput
+        );
     }
 
     // SHA-256
     {
-        use sha2::{Sha256, Digest};
-        
+        use sha2::{Digest, Sha256};
+
         let iterations = 100000;
         let data = vec![0u8; 64];
 
@@ -220,8 +244,12 @@ async fn run_crypto_benchmarks() {
             let _ = hasher.finalize();
         }
         let elapsed = start.elapsed();
-        println!("   SHA-256 (64 bytes): {:?} / {} iterations ({:?} avg)",
-            elapsed, iterations, elapsed / iterations);
+        println!(
+            "   SHA-256 (64 bytes): {:?} / {} iterations ({:?} avg)",
+            elapsed,
+            iterations,
+            elapsed / iterations
+        );
     }
 
     println!();

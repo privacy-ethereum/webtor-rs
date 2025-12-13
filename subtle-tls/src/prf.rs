@@ -33,14 +33,9 @@ async fn hmac_sha256(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     key_usages.push(&"sign".into());
 
     let crypto_key = JsFuture::from(
-        subtle.import_key_with_object(
-            "raw",
-            &key_data.buffer(),
-            &algorithm,
-            false,
-            &key_usages,
-        )
-        .map_err(|e| TlsError::subtle_crypto(format!("Failed to import HMAC key: {:?}", e)))?
+        subtle
+            .import_key_with_object("raw", &key_data.buffer(), &algorithm, false, &key_usages)
+            .map_err(|e| TlsError::subtle_crypto(format!("Failed to import HMAC key: {:?}", e)))?,
     )
     .await
     .map_err(|e| TlsError::subtle_crypto(format!("HMAC key import failed: {:?}", e)))?;
@@ -49,8 +44,9 @@ async fn hmac_sha256(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
 
     let data_array = Uint8Array::from(data);
     let signature = JsFuture::from(
-        subtle.sign_with_str_and_buffer_source("HMAC", &crypto_key, &data_array.buffer())
-            .map_err(|e| TlsError::subtle_crypto(format!("HMAC sign failed: {:?}", e)))?
+        subtle
+            .sign_with_str_and_buffer_source("HMAC", &crypto_key, &data_array.buffer())
+            .map_err(|e| TlsError::subtle_crypto(format!("HMAC sign failed: {:?}", e)))?,
     )
     .await
     .map_err(|e| TlsError::subtle_crypto(format!("HMAC computation failed: {:?}", e)))?;
@@ -79,14 +75,9 @@ async fn hmac_sha384(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     key_usages.push(&"sign".into());
 
     let crypto_key = JsFuture::from(
-        subtle.import_key_with_object(
-            "raw",
-            &key_data.buffer(),
-            &algorithm,
-            false,
-            &key_usages,
-        )
-        .map_err(|e| TlsError::subtle_crypto(format!("Failed to import HMAC key: {:?}", e)))?
+        subtle
+            .import_key_with_object("raw", &key_data.buffer(), &algorithm, false, &key_usages)
+            .map_err(|e| TlsError::subtle_crypto(format!("Failed to import HMAC key: {:?}", e)))?,
     )
     .await
     .map_err(|e| TlsError::subtle_crypto(format!("HMAC key import failed: {:?}", e)))?;
@@ -95,8 +86,9 @@ async fn hmac_sha384(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
 
     let data_array = Uint8Array::from(data);
     let signature = JsFuture::from(
-        subtle.sign_with_str_and_buffer_source("HMAC", &crypto_key, &data_array.buffer())
-            .map_err(|e| TlsError::subtle_crypto(format!("HMAC sign failed: {:?}", e)))?
+        subtle
+            .sign_with_str_and_buffer_source("HMAC", &crypto_key, &data_array.buffer())
+            .map_err(|e| TlsError::subtle_crypto(format!("HMAC sign failed: {:?}", e)))?,
     )
     .await
     .map_err(|e| TlsError::subtle_crypto(format!("HMAC computation failed: {:?}", e)))?;
@@ -125,14 +117,9 @@ async fn hmac_sha1(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     key_usages.push(&"sign".into());
 
     let crypto_key = JsFuture::from(
-        subtle.import_key_with_object(
-            "raw",
-            &key_data.buffer(),
-            &algorithm,
-            false,
-            &key_usages,
-        )
-        .map_err(|e| TlsError::subtle_crypto(format!("Failed to import HMAC key: {:?}", e)))?
+        subtle
+            .import_key_with_object("raw", &key_data.buffer(), &algorithm, false, &key_usages)
+            .map_err(|e| TlsError::subtle_crypto(format!("Failed to import HMAC key: {:?}", e)))?,
     )
     .await
     .map_err(|e| TlsError::subtle_crypto(format!("HMAC key import failed: {:?}", e)))?;
@@ -141,8 +128,9 @@ async fn hmac_sha1(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
 
     let data_array = Uint8Array::from(data);
     let signature = JsFuture::from(
-        subtle.sign_with_str_and_buffer_source("HMAC", &crypto_key, &data_array.buffer())
-            .map_err(|e| TlsError::subtle_crypto(format!("HMAC sign failed: {:?}", e)))?
+        subtle
+            .sign_with_str_and_buffer_source("HMAC", &crypto_key, &data_array.buffer())
+            .map_err(|e| TlsError::subtle_crypto(format!("HMAC sign failed: {:?}", e)))?,
     )
     .await
     .map_err(|e| TlsError::subtle_crypto(format!("HMAC computation failed: {:?}", e)))?;
@@ -158,18 +146,18 @@ async fn hmac_sha1(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
 async fn p_sha256(secret: &[u8], seed: &[u8], length: usize) -> Result<Vec<u8>> {
     let mut result = Vec::with_capacity(length);
     let mut a = hmac_sha256(secret, seed).await?; // A(1)
-    
+
     while result.len() < length {
         // HMAC(secret, A(i) + seed)
         let mut data = a.clone();
         data.extend_from_slice(seed);
         let p = hmac_sha256(secret, &data).await?;
         result.extend_from_slice(&p);
-        
+
         // A(i+1) = HMAC(secret, A(i))
         a = hmac_sha256(secret, &a).await?;
     }
-    
+
     result.truncate(length);
     Ok(result)
 }
@@ -180,7 +168,7 @@ pub async fn prf(secret: &[u8], label: &[u8], seed: &[u8], length: usize) -> Res
     let mut label_seed = Vec::with_capacity(label.len() + seed.len());
     label_seed.extend_from_slice(label);
     label_seed.extend_from_slice(seed);
-    
+
     p_sha256(secret, &label_seed, length).await
 }
 
@@ -194,7 +182,7 @@ pub async fn derive_master_secret(
     let mut seed = Vec::with_capacity(64);
     seed.extend_from_slice(client_random);
     seed.extend_from_slice(server_random);
-    
+
     prf(pre_master_secret, b"master secret", &seed, 48).await
 }
 
@@ -210,7 +198,7 @@ pub async fn derive_key_block(
     let mut seed = Vec::with_capacity(64);
     seed.extend_from_slice(server_random);
     seed.extend_from_slice(client_random);
-    
+
     prf(master_secret, b"key expansion", &seed, length).await
 }
 
@@ -239,26 +227,26 @@ impl KeyMaterial {
         if key_block.len() < total {
             return Err(TlsError::crypto("Key block too short"));
         }
-        
+
         let mut pos = 0;
-        
+
         let client_write_mac_key = key_block[pos..pos + mac_key_len].to_vec();
         pos += mac_key_len;
-        
+
         let server_write_mac_key = key_block[pos..pos + mac_key_len].to_vec();
         pos += mac_key_len;
-        
+
         let client_write_key = key_block[pos..pos + key_len].to_vec();
         pos += key_len;
-        
+
         let server_write_key = key_block[pos..pos + key_len].to_vec();
         pos += key_len;
-        
+
         let client_write_iv = key_block[pos..pos + iv_len].to_vec();
         pos += iv_len;
-        
+
         let server_write_iv = key_block[pos..pos + iv_len].to_vec();
-        
+
         Ok(Self {
             client_write_mac_key,
             server_write_mac_key,
@@ -282,7 +270,7 @@ pub async fn compute_verify_data(
     } else {
         b"server finished"
     };
-    
+
     prf(master_secret, label, handshake_hash, 12).await
 }
 
@@ -303,7 +291,7 @@ pub async fn compute_mac_sha256(
     data.push((fragment.len() >> 8) as u8);
     data.push(fragment.len() as u8);
     data.extend_from_slice(fragment);
-    
+
     hmac_sha256(mac_key, &data).await
 }
 
@@ -323,7 +311,7 @@ pub async fn compute_mac_sha1(
     data.push((fragment.len() >> 8) as u8);
     data.push(fragment.len() as u8);
     data.extend_from_slice(fragment);
-    
+
     hmac_sha1(mac_key, &data).await
 }
 
@@ -343,7 +331,7 @@ pub async fn compute_mac_sha384(
     data.push((fragment.len() >> 8) as u8);
     data.push(fragment.len() as u8);
     data.extend_from_slice(fragment);
-    
+
     hmac_sha384(mac_key, &data).await
 }
 
@@ -359,7 +347,7 @@ mod tests {
         let secret = vec![0u8; 32];
         let label = b"test label";
         let seed = vec![0u8; 32];
-        
+
         let result = prf(&secret, label, &seed, 48).await.unwrap();
         assert_eq!(result.len(), 48);
     }
@@ -369,15 +357,17 @@ mod tests {
         let pms = vec![0u8; 48];
         let client_random = vec![0u8; 32];
         let server_random = vec![0u8; 32];
-        
-        let ms = derive_master_secret(&pms, &client_random, &server_random).await.unwrap();
+
+        let ms = derive_master_secret(&pms, &client_random, &server_random)
+            .await
+            .unwrap();
         assert_eq!(ms.len(), 48);
     }
 
     #[wasm_bindgen_test]
     async fn test_key_block_extraction() {
         let key_block = vec![0u8; 104]; // Enough for CBC with SHA-256 MAC
-        
+
         let km = KeyMaterial::from_key_block(&key_block, 32, 16, 16).unwrap();
         assert_eq!(km.client_write_mac_key.len(), 32);
         assert_eq!(km.server_write_mac_key.len(), 32);

@@ -14,8 +14,8 @@ use x509_parser::prelude::*;
 
 /// Get the SubtleCrypto instance
 fn get_subtle_crypto() -> Result<SubtleCrypto> {
-    let window = web_sys::window()
-        .ok_or_else(|| TlsError::subtle_crypto("No window object available"))?;
+    let window =
+        web_sys::window().ok_or_else(|| TlsError::subtle_crypto("No window object available"))?;
     let crypto: Crypto = window
         .crypto()
         .map_err(|_| TlsError::subtle_crypto("No crypto object available"))?;
@@ -40,7 +40,7 @@ impl CertificateVerifier {
         } else {
             TrustStore::new().ok()
         };
-        
+
         Self {
             server_name: server_name.to_string(),
             skip_verification,
@@ -58,7 +58,7 @@ impl CertificateVerifier {
     }
 
     /// Verify a certificate chain
-    /// 
+    ///
     /// The chain should be ordered with the leaf certificate first,
     /// followed by intermediate certificates, and optionally the root.
     pub async fn verify_chain(&self, cert_chain: &[Vec<u8>]) -> Result<()> {
@@ -73,8 +73,9 @@ impl CertificateVerifier {
 
         // Parse the leaf certificate
         let leaf_der = &cert_chain[0];
-        let (_, leaf_cert) = X509Certificate::from_der(leaf_der)
-            .map_err(|e| TlsError::certificate(format!("Failed to parse leaf certificate: {}", e)))?;
+        let (_, leaf_cert) = X509Certificate::from_der(leaf_der).map_err(|e| {
+            TlsError::certificate(format!("Failed to parse leaf certificate: {}", e))
+        })?;
 
         debug!("Verifying certificate for: {:?}", leaf_cert.subject());
 
@@ -99,7 +100,11 @@ impl CertificateVerifier {
                 match name {
                     GeneralName::DNSName(dns_name) => {
                         if self.matches_hostname(dns_name) {
-                            trace!("Server name '{}' matches SAN '{}'", self.server_name, dns_name);
+                            trace!(
+                                "Server name '{}' matches SAN '{}'",
+                                self.server_name,
+                                dns_name
+                            );
                             return Ok(());
                         }
                     }
@@ -165,7 +170,7 @@ impl CertificateVerifier {
     /// Verify the certificate is currently valid
     fn verify_validity(&self, cert: &X509Certificate) -> Result<()> {
         let validity = cert.validity();
-        
+
         // Get current time - in WASM we use js_sys::Date
         let now_ms = js_sys::Date::now();
         let now_secs = (now_ms / 1000.0) as i64;
@@ -198,47 +203,62 @@ impl CertificateVerifier {
             let cert_der = &cert_chain[i];
             let issuer_der = &cert_chain[i + 1];
 
-            let (_, cert) = X509Certificate::from_der(cert_der)
-                .map_err(|e| TlsError::certificate(format!("Failed to parse certificate {}: {}", i, e)))?;
-            let (_, issuer) = X509Certificate::from_der(issuer_der)
-                .map_err(|e| TlsError::certificate(format!("Failed to parse issuer {}: {}", i + 1, e)))?;
+            let (_, cert) = X509Certificate::from_der(cert_der).map_err(|e| {
+                TlsError::certificate(format!("Failed to parse certificate {}: {}", i, e))
+            })?;
+            let (_, issuer) = X509Certificate::from_der(issuer_der).map_err(|e| {
+                TlsError::certificate(format!("Failed to parse issuer {}: {}", i + 1, e))
+            })?;
 
             // Verify the certificate's issuer matches the issuer's subject
             if cert.issuer() != issuer.subject() {
                 return Err(TlsError::certificate(format!(
                     "Certificate {} issuer does not match certificate {} subject",
-                    i, i + 1
+                    i,
+                    i + 1
                 )));
             }
 
             // Verify the signature
             self.verify_signature(&cert, &issuer).await?;
-            
-            debug!("Certificate {} signature verified by certificate {}", i, i + 1);
+
+            debug!(
+                "Certificate {} signature verified by certificate {}",
+                i,
+                i + 1
+            );
         }
 
         // Check the last certificate against trust store
-        let last_cert_der = cert_chain.last()
+        let last_cert_der = cert_chain
+            .last()
             .ok_or_else(|| TlsError::certificate("Empty certificate chain"))?;
-        
-        let (_, last_cert) = X509Certificate::from_der(last_cert_der)
-            .map_err(|e| TlsError::certificate(format!("Failed to parse last certificate: {}", e)))?;
+
+        let (_, last_cert) = X509Certificate::from_der(last_cert_der).map_err(|e| {
+            TlsError::certificate(format!("Failed to parse last certificate: {}", e))
+        })?;
 
         // Check if the last cert is in our trust store
         if let Some(ref trust_store) = self.trust_store {
             if trust_store.is_trusted_root(last_cert_der) {
-                info!("Certificate chain terminates at trusted root: {}", last_cert.subject());
+                info!(
+                    "Certificate chain terminates at trusted root: {}",
+                    last_cert.subject()
+                );
                 return Ok(());
             }
-            
+
             // Check if the last cert was issued by a trusted root
             if trust_store.is_issued_by_trusted_root(last_cert_der) {
-                info!("Certificate chain issued by trusted root (issuer: {})", last_cert.issuer());
+                info!(
+                    "Certificate chain issued by trusted root (issuer: {})",
+                    last_cert.issuer()
+                );
                 // For intermediates, we should ideally verify the signature against the root
                 // but the root may not be in the chain. Accept if issuer matches.
                 return Ok(());
             }
-            
+
             // Not in trust store - warn but continue (for now)
             // In strict mode, this should be an error
             warn!(
@@ -280,7 +300,8 @@ impl CertificateVerifier {
 
         trace!(
             "Verifying signature with algorithm: {}, hash: {}",
-            algorithm_name, hash_name
+            algorithm_name,
+            hash_name
         );
 
         // Import the public key and verify the signature
@@ -291,7 +312,8 @@ impl CertificateVerifier {
             public_key_data,
             signature,
             tbs_certificate,
-        ).await
+        )
+        .await
     }
 
     /// Map X.509 signature algorithm OID to SubtleCrypto parameters
@@ -311,7 +333,10 @@ impl CertificateVerifier {
 
         let key_algorithm = Object::new();
 
-        if sig_oid == &oid_sha256_with_rsa || sig_oid == &oid_sha384_with_rsa || sig_oid == &oid_sha512_with_rsa {
+        if sig_oid == &oid_sha256_with_rsa
+            || sig_oid == &oid_sha384_with_rsa
+            || sig_oid == &oid_sha512_with_rsa
+        {
             // RSA PKCS#1 v1.5
             let hash = if sig_oid == &oid_sha256_with_rsa {
                 "SHA-256"
@@ -330,7 +355,11 @@ impl CertificateVerifier {
             Reflect::set(&key_algorithm, &"hash".into(), &hash_obj)
                 .map_err(|_| TlsError::subtle_crypto("Failed to set hash"))?;
 
-            return Ok(("RSASSA-PKCS1-v1_5".to_string(), hash.to_string(), key_algorithm));
+            return Ok((
+                "RSASSA-PKCS1-v1_5".to_string(),
+                hash.to_string(),
+                key_algorithm,
+            ));
         }
 
         if sig_oid == &oid_rsa_pss {
@@ -383,9 +412,12 @@ impl CertificateVerifier {
         // P-384 (secp384r1): 1.3.132.0.34
         // P-521 (secp521r1): 1.3.132.0.35
 
-        let oid_p256: x509_parser::der_parser::oid::Oid = x509_parser::der_parser::oid::Oid::from(&[1, 2, 840, 10045, 3, 1, 7]).unwrap();
-        let oid_p384: x509_parser::der_parser::oid::Oid = x509_parser::der_parser::oid::Oid::from(&[1, 3, 132, 0, 34]).unwrap();
-        let oid_p521: x509_parser::der_parser::oid::Oid = x509_parser::der_parser::oid::Oid::from(&[1, 3, 132, 0, 35]).unwrap();
+        let oid_p256: x509_parser::der_parser::oid::Oid =
+            x509_parser::der_parser::oid::Oid::from(&[1, 2, 840, 10045, 3, 1, 7]).unwrap();
+        let oid_p384: x509_parser::der_parser::oid::Oid =
+            x509_parser::der_parser::oid::Oid::from(&[1, 3, 132, 0, 34]).unwrap();
+        let oid_p521: x509_parser::der_parser::oid::Oid =
+            x509_parser::der_parser::oid::Oid::from(&[1, 3, 132, 0, 35]).unwrap();
 
         // Parse the algorithm parameters to get the curve OID
         if let Some(params) = &public_key_info.algorithm.parameters {
@@ -429,7 +461,10 @@ impl CertificateVerifier {
 
         let key_algorithm = Object::new();
 
-        if sig_oid == &oid_sha256_with_rsa || sig_oid == &oid_sha384_with_rsa || sig_oid == &oid_sha512_with_rsa {
+        if sig_oid == &oid_sha256_with_rsa
+            || sig_oid == &oid_sha384_with_rsa
+            || sig_oid == &oid_sha512_with_rsa
+        {
             // RSA PKCS#1 v1.5
             let hash = if sig_oid == &oid_sha256_with_rsa {
                 "SHA-256"
@@ -441,14 +476,18 @@ impl CertificateVerifier {
 
             Reflect::set(&key_algorithm, &"name".into(), &"RSASSA-PKCS1-v1_5".into())
                 .map_err(|_| TlsError::subtle_crypto("Failed to set algorithm name"))?;
-            
+
             let hash_obj = Object::new();
             Reflect::set(&hash_obj, &"name".into(), &hash.into())
                 .map_err(|_| TlsError::subtle_crypto("Failed to set hash name"))?;
             Reflect::set(&key_algorithm, &"hash".into(), &hash_obj)
                 .map_err(|_| TlsError::subtle_crypto("Failed to set hash"))?;
 
-            return Ok(("RSASSA-PKCS1-v1_5".to_string(), hash.to_string(), key_algorithm));
+            return Ok((
+                "RSASSA-PKCS1-v1_5".to_string(),
+                hash.to_string(),
+                key_algorithm,
+            ));
         }
 
         if sig_oid == &oid_rsa_pss {
@@ -456,7 +495,7 @@ impl CertificateVerifier {
             // For simplicity, default to SHA-256
             Reflect::set(&key_algorithm, &"name".into(), &"RSA-PSS".into())
                 .map_err(|_| TlsError::subtle_crypto("Failed to set algorithm name"))?;
-            
+
             let hash_obj = Object::new();
             Reflect::set(&hash_obj, &"name".into(), &"SHA-256".into())
                 .map_err(|_| TlsError::subtle_crypto("Failed to set hash name"))?;
@@ -510,7 +549,13 @@ async fn verify_signature_with_subtle_crypto(
 
     let public_key = JsFuture::from(
         subtle
-            .import_key_with_object("spki", &key_data.buffer(), key_algorithm, false, &key_usages)
+            .import_key_with_object(
+                "spki",
+                &key_data.buffer(),
+                key_algorithm,
+                false,
+                &key_usages,
+            )
             .map_err(|e| TlsError::subtle_crypto(format!("Failed to import key: {:?}", e)))?,
     )
     .await
@@ -533,9 +578,19 @@ async fn verify_signature_with_subtle_crypto(
     } else if algorithm_name == "RSA-PSS" {
         // RSA-PSS needs saltLength
         // Salt length is typically the hash length
-        let salt_length = if hash_name == "SHA-256" { 32 } else if hash_name == "SHA-384" { 48 } else { 64 };
-        Reflect::set(&verify_algorithm, &"saltLength".into(), &JsValue::from_f64(salt_length as f64))
-            .map_err(|_| TlsError::subtle_crypto("Failed to set saltLength"))?;
+        let salt_length = if hash_name == "SHA-256" {
+            32
+        } else if hash_name == "SHA-384" {
+            48
+        } else {
+            64
+        };
+        Reflect::set(
+            &verify_algorithm,
+            &"saltLength".into(),
+            &JsValue::from_f64(salt_length as f64),
+        )
+        .map_err(|_| TlsError::subtle_crypto("Failed to set saltLength"))?;
     }
 
     // For ECDSA, we need to convert the signature from DER to raw format
@@ -594,13 +649,17 @@ fn convert_ecdsa_signature_from_der_sized(der_sig: &[u8], coord_size: usize) -> 
 
     // SEQUENCE tag
     if der_sig[pos] != 0x30 {
-        return Err(TlsError::certificate("Invalid ECDSA signature: not a SEQUENCE"));
+        return Err(TlsError::certificate(
+            "Invalid ECDSA signature: not a SEQUENCE",
+        ));
     }
     pos += 1;
 
     // Bounds check before reading SEQUENCE length
     if pos >= der_sig.len() {
-        return Err(TlsError::certificate("ECDSA signature truncated at sequence length"));
+        return Err(TlsError::certificate(
+            "ECDSA signature truncated at sequence length",
+        ));
     }
 
     // SEQUENCE length
@@ -609,7 +668,9 @@ fn convert_ecdsa_signature_from_der_sized(der_sig: &[u8], coord_size: usize) -> 
         pos += 1;
         // Bounds check for multi-byte length
         if pos + len_bytes > der_sig.len() {
-            return Err(TlsError::certificate("ECDSA signature truncated in length field"));
+            return Err(TlsError::certificate(
+                "ECDSA signature truncated in length field",
+            ));
         }
         let mut len = 0usize;
         for _ in 0..len_bytes {
@@ -625,10 +686,14 @@ fn convert_ecdsa_signature_from_der_sized(der_sig: &[u8], coord_size: usize) -> 
 
     // Parse r - bounds check for tag and length bytes
     if pos + 2 > der_sig.len() {
-        return Err(TlsError::certificate("ECDSA signature truncated at r header"));
+        return Err(TlsError::certificate(
+            "ECDSA signature truncated at r header",
+        ));
     }
     if der_sig[pos] != 0x02 {
-        return Err(TlsError::certificate("Invalid ECDSA signature: r not INTEGER"));
+        return Err(TlsError::certificate(
+            "Invalid ECDSA signature: r not INTEGER",
+        ));
     }
     pos += 1;
     let r_len = der_sig[pos] as usize;
@@ -642,10 +707,14 @@ fn convert_ecdsa_signature_from_der_sized(der_sig: &[u8], coord_size: usize) -> 
 
     // Parse s - bounds check for tag and length bytes
     if pos + 2 > der_sig.len() {
-        return Err(TlsError::certificate("ECDSA signature truncated at s header"));
+        return Err(TlsError::certificate(
+            "ECDSA signature truncated at s header",
+        ));
     }
     if der_sig[pos] != 0x02 {
-        return Err(TlsError::certificate("Invalid ECDSA signature: s not INTEGER"));
+        return Err(TlsError::certificate(
+            "Invalid ECDSA signature: s not INTEGER",
+        ));
     }
     pos += 1;
     let s_len = der_sig[pos] as usize;
@@ -662,7 +731,10 @@ fn convert_ecdsa_signature_from_der_sized(der_sig: &[u8], coord_size: usize) -> 
     // r - strip leading zeros and pad to coord_size
     let r_start = if r_bytes.len() > coord_size && r_bytes[0] == 0 {
         // Skip leading zero padding (DER uses this for positive integers)
-        r_bytes.iter().position(|&b| b != 0).unwrap_or(r_bytes.len() - 1)
+        r_bytes
+            .iter()
+            .position(|&b| b != 0)
+            .unwrap_or(r_bytes.len() - 1)
     } else {
         0
     };
@@ -673,7 +745,10 @@ fn convert_ecdsa_signature_from_der_sized(der_sig: &[u8], coord_size: usize) -> 
 
     // s - strip leading zeros and pad to coord_size
     let s_start = if s_bytes.len() > coord_size && s_bytes[0] == 0 {
-        s_bytes.iter().position(|&b| b != 0).unwrap_or(s_bytes.len() - 1)
+        s_bytes
+            .iter()
+            .position(|&b| b != 0)
+            .unwrap_or(s_bytes.len() - 1)
     } else {
         0
     };
@@ -729,11 +804,11 @@ pub async fn verify_certificate_verify(
 
     // Build key import algorithm
     let key_algorithm = Object::new();
-    
+
     if algorithm_name.starts_with("RSA") {
         Reflect::set(&key_algorithm, &"name".into(), &algorithm_name.into())
             .map_err(|_| TlsError::subtle_crypto("Failed to set algorithm name"))?;
-        
+
         let hash_obj = Object::new();
         Reflect::set(&hash_obj, &"name".into(), &hash_name.into())
             .map_err(|_| TlsError::subtle_crypto("Failed to set hash name"))?;
@@ -743,8 +818,12 @@ pub async fn verify_certificate_verify(
         // ECDSA
         Reflect::set(&key_algorithm, &"name".into(), &"ECDSA".into())
             .map_err(|_| TlsError::subtle_crypto("Failed to set algorithm name"))?;
-        
-        let curve = if signature_algorithm == 0x0503 { "P-384" } else { "P-256" };
+
+        let curve = if signature_algorithm == 0x0503 {
+            "P-384"
+        } else {
+            "P-256"
+        };
         Reflect::set(&key_algorithm, &"namedCurve".into(), &curve.into())
             .map_err(|_| TlsError::subtle_crypto("Failed to set curve"))?;
     }
@@ -756,7 +835,13 @@ pub async fn verify_certificate_verify(
 
     let public_key = JsFuture::from(
         subtle
-            .import_key_with_object("spki", &key_data.buffer(), &key_algorithm, false, &key_usages)
+            .import_key_with_object(
+                "spki",
+                &key_data.buffer(),
+                &key_algorithm,
+                false,
+                &key_usages,
+            )
             .map_err(|e| TlsError::subtle_crypto(format!("Failed to import key: {:?}", e)))?,
     )
     .await
@@ -782,8 +867,12 @@ pub async fn verify_certificate_verify(
             "SHA-512" => 64,
             _ => 32,
         };
-        Reflect::set(&verify_algorithm, &"saltLength".into(), &JsValue::from_f64(salt_length as f64))
-            .map_err(|_| TlsError::subtle_crypto("Failed to set saltLength"))?;
+        Reflect::set(
+            &verify_algorithm,
+            &"saltLength".into(),
+            &JsValue::from_f64(salt_length as f64),
+        )
+        .map_err(|_| TlsError::subtle_crypto("Failed to set saltLength"))?;
     }
 
     // Convert ECDSA signature from DER if needed
@@ -820,7 +909,9 @@ pub async fn verify_certificate_verify(
         debug!("CertificateVerify signature verified");
         Ok(())
     } else {
-        Err(TlsError::certificate("CertificateVerify signature verification failed"))
+        Err(TlsError::certificate(
+            "CertificateVerify signature verification failed",
+        ))
     }
 }
 
@@ -834,7 +925,7 @@ mod tests {
     #[test]
     fn test_hostname_matching() {
         let verifier = CertificateVerifier::new("example.com", false);
-        
+
         assert!(verifier.matches_hostname("example.com"));
         assert!(verifier.matches_hostname("EXAMPLE.COM"));
         assert!(verifier.matches_hostname("*.example.com") == false); // Wildcard doesn't match apex
@@ -844,7 +935,7 @@ mod tests {
     #[test]
     fn test_wildcard_matching() {
         let verifier = CertificateVerifier::new("foo.example.com", false);
-        
+
         assert!(verifier.matches_hostname("*.example.com"));
         assert!(verifier.matches_hostname("foo.example.com"));
         assert!(!verifier.matches_hostname("*.other.com"));
@@ -856,15 +947,12 @@ mod tests {
         let der_sig = [
             0x30, 0x44, // SEQUENCE, length 68
             0x02, 0x20, // INTEGER, length 32
-            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-            0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
-            0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
-            0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
-            0x02, 0x20, // INTEGER, length 32
-            0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28,
-            0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30,
-            0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38,
-            0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40,
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+            0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c,
+            0x1d, 0x1e, 0x1f, 0x20, 0x02, 0x20, // INTEGER, length 32
+            0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e,
+            0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c,
+            0x3d, 0x3e, 0x3f, 0x40,
         ];
 
         let raw = convert_ecdsa_signature_from_der(&der_sig).unwrap();

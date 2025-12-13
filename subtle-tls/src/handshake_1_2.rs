@@ -74,7 +74,7 @@ pub const EC_CURVE_TYPE_NAMED_CURVE: u8 = 3;
 pub struct CipherSuiteParams {
     pub mac_key_len: usize,
     pub key_len: usize,
-    pub iv_len: usize,  // Fixed IV length (for GCM: 4, for CBC: 0 since IV is explicit)
+    pub iv_len: usize, // Fixed IV length (for GCM: 4, for CBC: 0 since IV is explicit)
     pub is_aead: bool,
     pub mac_len: usize, // For CBC: HMAC output length; for GCM: 0 (tag is part of ciphertext)
     pub use_sha384: bool, // true for SHA-384 cipher suites (0xC030, 0xC028)
@@ -84,9 +84,9 @@ impl CipherSuiteParams {
     pub fn for_suite(suite: u16) -> Result<Self> {
         match suite {
             TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 => Ok(Self {
-                mac_key_len: 0,  // No separate MAC key for AEAD
+                mac_key_len: 0, // No separate MAC key for AEAD
                 key_len: 16,
-                iv_len: 4,       // Implicit IV (nonce) for GCM
+                iv_len: 4, // Implicit IV (nonce) for GCM
                 is_aead: true,
                 mac_len: 0,
                 use_sha384: false,
@@ -102,9 +102,9 @@ impl CipherSuiteParams {
             TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256 => Ok(Self {
                 mac_key_len: 32, // SHA-256 HMAC key
                 key_len: 16,
-                iv_len: 0,       // Explicit IV in record (not from key block)
+                iv_len: 0, // Explicit IV in record (not from key block)
                 is_aead: false,
-                mac_len: 32,     // SHA-256 output
+                mac_len: 32, // SHA-256 output
                 use_sha384: false,
             }),
             TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384 => Ok(Self {
@@ -120,7 +120,7 @@ impl CipherSuiteParams {
                 key_len: 16,
                 iv_len: 0,
                 is_aead: false,
-                mac_len: 20,     // SHA-1 output
+                mac_len: 20, // SHA-1 output
                 use_sha384: false,
             }),
             TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA => Ok(Self {
@@ -131,7 +131,10 @@ impl CipherSuiteParams {
                 mac_len: 20,
                 use_sha384: false,
             }),
-            _ => Err(TlsError::protocol(format!("Unsupported cipher suite: 0x{:04x}", suite))),
+            _ => Err(TlsError::protocol(format!(
+                "Unsupported cipher suite: 0x{:04x}",
+                suite
+            ))),
         }
     }
 
@@ -316,17 +319,17 @@ impl Handshake12State {
             SIG_ECDSA_SECP256R1_SHA256,
             SIG_ECDSA_SECP384R1_SHA384,
         ];
-        
+
         let mut ext = Vec::new();
         let len = algs.len() * 2;
         ext.push((len >> 8) as u8);
         ext.push(len as u8);
-        
+
         for alg in algs {
             ext.push((alg >> 8) as u8);
             ext.push(alg as u8);
         }
-        
+
         ext
     }
 
@@ -403,7 +406,9 @@ impl Handshake12State {
         pos += 1;
 
         if pos + pubkey_len > data.len() {
-            return Err(TlsError::handshake("ServerKeyExchange public key truncated"));
+            return Err(TlsError::handshake(
+                "ServerKeyExchange public key truncated",
+            ));
         }
 
         // Store server's public key
@@ -418,9 +423,10 @@ impl Handshake12State {
 
     /// Generate our ECDH key pair and compute shared secret
     pub async fn compute_key_exchange(&mut self) -> Result<()> {
-        let curve = self.server_curve
+        let curve = self
+            .server_curve
             .ok_or_else(|| TlsError::handshake("No server curve"))?;
-        
+
         if curve != GROUP_SECP256R1 {
             return Err(TlsError::handshake(format!(
                 "Unsupported curve: 0x{:04x}, only P-256 supported",
@@ -428,15 +434,20 @@ impl Handshake12State {
             )));
         }
 
-        let server_pubkey = self.server_public_key.as_ref()
+        let server_pubkey = self
+            .server_public_key
+            .as_ref()
             .ok_or_else(|| TlsError::handshake("No server public key"))?;
 
         // Generate our key pair
         let ecdh_key = EcdhKeyPair::generate().await?;
-        
+
         // Derive shared secret (this is the pre-master secret for ECDHE)
         let pre_master_secret = ecdh_key.derive_shared_secret(server_pubkey).await?;
-        debug!("Computed ECDHE shared secret: {} bytes", pre_master_secret.len());
+        debug!(
+            "Computed ECDHE shared secret: {} bytes",
+            pre_master_secret.len()
+        );
 
         self.ecdh_key = Some(ecdh_key);
         self.pre_master_secret = Some(pre_master_secret);
@@ -446,15 +457,14 @@ impl Handshake12State {
 
     /// Derive master secret and key material
     pub async fn derive_keys(&mut self) -> Result<()> {
-        let pms = self.pre_master_secret.as_ref()
+        let pms = self
+            .pre_master_secret
+            .as_ref()
             .ok_or_else(|| TlsError::handshake("No pre-master secret"))?;
 
         // Derive master secret
-        let master_secret = prf::derive_master_secret(
-            pms,
-            &self.client_random,
-            &self.server_random,
-        ).await?;
+        let master_secret =
+            prf::derive_master_secret(pms, &self.client_random, &self.server_random).await?;
         debug!("Derived master secret: {} bytes", master_secret.len());
 
         // Get cipher suite parameters
@@ -466,7 +476,8 @@ impl Handshake12State {
             &self.client_random,
             &self.server_random,
             params.key_block_len(),
-        ).await?;
+        )
+        .await?;
 
         // Extract key material
         let key_material = KeyMaterial::from_key_block(
@@ -485,11 +496,13 @@ impl Handshake12State {
 
     /// Build ClientKeyExchange message (ECDH public key)
     pub fn build_client_key_exchange(&self) -> Result<Vec<u8>> {
-        let ecdh_key = self.ecdh_key.as_ref()
+        let ecdh_key = self
+            .ecdh_key
+            .as_ref()
             .ok_or_else(|| TlsError::handshake("No ECDH key pair"))?;
 
         let pubkey = &ecdh_key.public_key_bytes;
-        
+
         let mut message = vec![HANDSHAKE_CLIENT_KEY_EXCHANGE];
         let len = 1 + pubkey.len(); // length byte + public key
         message.push((len >> 16) as u8);
@@ -503,7 +516,9 @@ impl Handshake12State {
 
     /// Build Finished message
     pub async fn build_finished(&self) -> Result<Vec<u8>> {
-        let master_secret = self.master_secret.as_ref()
+        let master_secret = self
+            .master_secret
+            .as_ref()
             .ok_or_else(|| TlsError::handshake("No master secret"))?;
 
         // Use SHA-384 for cipher suites that require it, otherwise SHA-256
@@ -513,13 +528,14 @@ impl Handshake12State {
         } else {
             crypto::sha256(&self.transcript).await?
         };
-        
+
         // Compute verify_data
         let verify_data = prf::compute_verify_data(
             master_secret,
             true, // is_client
             &transcript_hash,
-        ).await?;
+        )
+        .await?;
 
         let mut message = vec![HANDSHAKE_FINISHED];
         let len = verify_data.len();
@@ -533,7 +549,9 @@ impl Handshake12State {
 
     /// Verify server Finished message
     pub async fn verify_server_finished(&self, received_verify_data: &[u8]) -> Result<()> {
-        let master_secret = self.master_secret.as_ref()
+        let master_secret = self
+            .master_secret
+            .as_ref()
             .ok_or_else(|| TlsError::handshake("No master secret"))?;
 
         // Use SHA-384 for cipher suites that require it, otherwise SHA-256
@@ -543,13 +561,14 @@ impl Handshake12State {
         } else {
             crypto::sha256(&self.transcript).await?
         };
-        
+
         // Compute expected verify_data
         let expected = prf::compute_verify_data(
             master_secret,
             false, // is_server
             &transcript_hash,
-        ).await?;
+        )
+        .await?;
 
         if received_verify_data != expected {
             return Err(TlsError::handshake("Server Finished verification failed"));
@@ -584,9 +603,8 @@ pub fn parse_certificate(data: &[u8]) -> Result<Vec<Vec<u8>>> {
     let mut pos = 0;
 
     // Certificate list length (3 bytes)
-    let list_len = ((data[pos] as usize) << 16) 
-                 | ((data[pos + 1] as usize) << 8) 
-                 | (data[pos + 2] as usize);
+    let list_len =
+        ((data[pos] as usize) << 16) | ((data[pos + 1] as usize) << 8) | (data[pos + 2] as usize);
     pos += 3;
 
     let list_end = pos + list_len;
@@ -594,9 +612,9 @@ pub fn parse_certificate(data: &[u8]) -> Result<Vec<Vec<u8>>> {
 
     while pos + 3 <= list_end {
         // Certificate length (3 bytes)
-        let cert_len = ((data[pos] as usize) << 16) 
-                     | ((data[pos + 1] as usize) << 8) 
-                     | (data[pos + 2] as usize);
+        let cert_len = ((data[pos] as usize) << 16)
+            | ((data[pos + 1] as usize) << 8)
+            | (data[pos + 2] as usize);
         pos += 3;
 
         if pos + cert_len > list_end {

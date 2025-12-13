@@ -34,18 +34,19 @@ mod wasm {
         pub async fn connect(url: &str) -> Result<Self> {
             let socket = WebSocket::new(url)
                 .map_err(|e| TorError::Network(format!("Failed to create WebSocket: {:?}", e)))?;
-            
+
             socket.set_binary_type(BinaryType::Arraybuffer);
 
             let (tx, rx) = mpsc::unbounded();
-            
+
             // Prepare channel clones for callbacks
             let tx_msg = tx.clone();
             let tx_err = tx.clone();
             let tx_close = tx;
 
             // Shared state for connection status (Open/Error/Close during handshake)
-            let (open_tx, open_rx) = futures::channel::oneshot::channel::<std::result::Result<(), String>>();
+            let (open_tx, open_rx) =
+                futures::channel::oneshot::channel::<std::result::Result<(), String>>();
             let open_tx = Rc::new(RefCell::new(Some(open_tx)));
 
             // onmessage
@@ -78,11 +79,18 @@ mod wasm {
             let on_close = Closure::wrap(Box::new(move |e: web_sys::CloseEvent| {
                 // If we are still connecting, fail the connection future
                 if let Some(tx) = open_tx_close.borrow_mut().take() {
-                    let _ = tx.send(Err(format!("WebSocket closed during connection: code={}, reason={}", e.code(), e.reason())));
+                    let _ = tx.send(Err(format!(
+                        "WebSocket closed during connection: code={}, reason={}",
+                        e.code(),
+                        e.reason()
+                    )));
                 }
 
                 if !e.was_clean() {
-                     let _ = tx_close.unbounded_send(Err(io::Error::new(io::ErrorKind::ConnectionAborted, format!("Close code: {}", e.code()))));
+                    let _ = tx_close.unbounded_send(Err(io::Error::new(
+                        io::ErrorKind::ConnectionAborted,
+                        format!("Close code: {}", e.code()),
+                    )));
                 }
                 // If clean close, just drop sender (handled by closure capture drop)
             }) as Box<dyn FnMut(web_sys::CloseEvent)>);
@@ -99,9 +107,13 @@ mod wasm {
 
             // Wait for connection or error
             match open_rx.await {
-                Ok(Ok(())) => {},
+                Ok(Ok(())) => {}
                 Ok(Err(e)) => return Err(TorError::Network(e)),
-                Err(_) => return Err(TorError::Network("Connection cancelled or sender dropped".to_string())),
+                Err(_) => {
+                    return Err(TorError::Network(
+                        "Connection cancelled or sender dropped".to_string(),
+                    ))
+                }
             }
 
             // Clear onopen handler before it's dropped to prevent
@@ -153,12 +165,12 @@ mod wasm {
                     }
                     let len = std::cmp::min(buf.len(), data.len());
                     buf[0..len].copy_from_slice(&data[0..len]);
-                    
+
                     // Store remaining
                     if len < data.len() {
                         self.buffer.extend_from_slice(&data[len..]);
                     }
-                    
+
                     Poll::Ready(Ok(len))
                 }
                 Poll::Ready(Some(Err(e))) => Poll::Ready(Err(e)),
@@ -204,9 +216,9 @@ mod native {
     use super::*;
     use futures::stream::{SplitSink, SplitStream};
     use futures::{Sink, Stream};
-    use tokio_tungstenite::{MaybeTlsStream, WebSocketStream as TungsteniteStream};
     use tokio::net::TcpStream;
     use tokio_tungstenite::tungstenite::Message;
+    use tokio_tungstenite::{MaybeTlsStream, WebSocketStream as TungsteniteStream};
     use tracing::{debug, info, trace};
 
     /// Native WebSocket stream using tokio-tungstenite
@@ -219,15 +231,15 @@ mod native {
     impl WebSocketStream {
         pub async fn connect(url: &str) -> Result<Self> {
             info!("Connecting to WebSocket: {}", url);
-            
+
             let (ws_stream, _response) = tokio_tungstenite::connect_async(url)
                 .await
                 .map_err(|e| TorError::Network(format!("WebSocket connection failed: {}", e)))?;
-            
+
             debug!("WebSocket connected");
-            
+
             let (write, read) = futures::StreamExt::split(ws_stream);
-            
+
             Ok(Self {
                 write,
                 read,
@@ -256,7 +268,10 @@ mod native {
                 Poll::Ready(Some(Ok(msg))) => {
                     let data = match msg {
                         Message::Binary(data) => {
-                            trace!("WebSocket poll_read: got binary message {} bytes", data.len());
+                            trace!(
+                                "WebSocket poll_read: got binary message {} bytes",
+                                data.len()
+                            );
                             data
                         }
                         Message::Text(text) => {
@@ -279,20 +294,20 @@ mod native {
                             return Poll::Pending;
                         }
                     };
-                    
+
                     if data.is_empty() {
                         cx.waker().wake_by_ref();
                         return Poll::Pending;
                     }
-                    
+
                     let len = std::cmp::min(buf.len(), data.len());
                     buf[0..len].copy_from_slice(&data[0..len]);
-                    
+
                     // Store remaining
                     if len < data.len() {
                         self.buffer.extend_from_slice(&data[len..]);
                     }
-                    
+
                     Poll::Ready(Ok(len))
                 }
                 Poll::Ready(Some(Err(e))) => {
@@ -318,15 +333,13 @@ mod native {
             buf: &[u8],
         ) -> Poll<io::Result<usize>> {
             use futures::ready;
-            
+
             trace!("WebSocket poll_write: writing {} bytes", buf.len());
-            
+
             // 1. Wait until the sink is ready to accept a new message.
-            ready!(
-                Pin::new(&mut self.write)
-                    .poll_ready(cx)
-                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
-            );
+            ready!(Pin::new(&mut self.write)
+                .poll_ready(cx)
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?);
 
             // 2. Enqueue our WebSocket frame.
             let len = buf.len();
@@ -336,11 +349,9 @@ mod native {
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
 
             // 3. Flush the sink so the frame actually hits the network.
-            ready!(
-                Pin::new(&mut self.write)
-                    .poll_flush(cx)
-                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
-            );
+            ready!(Pin::new(&mut self.write)
+                .poll_flush(cx)
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?);
 
             trace!("WebSocket poll_write: wrote and flushed {} bytes", len);
             Poll::Ready(Ok(len))
@@ -358,10 +369,6 @@ mod native {
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
         }
     }
-    
-    // Native WebSocket is Send + Sync since tokio-tungstenite uses tokio primitives
-    unsafe impl Send for WebSocketStream {}
-    unsafe impl Sync for WebSocketStream {}
 }
 
 #[cfg(target_arch = "wasm32")]

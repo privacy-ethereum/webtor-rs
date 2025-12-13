@@ -11,7 +11,7 @@
 //! - Bytes 8+: payload
 
 use crate::error::{Result, TorError};
-use futures::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
+use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -52,7 +52,10 @@ impl TryFrom<u8> for SmuxCommand {
             2 => Ok(SmuxCommand::Psh),
             3 => Ok(SmuxCommand::Nop),
             4 => Ok(SmuxCommand::Upd),
-            _ => Err(TorError::Protocol(format!("Invalid SMUX command: {}", value))),
+            _ => Err(TorError::Protocol(format!(
+                "Invalid SMUX command: {}",
+                value
+            ))),
         }
     }
 }
@@ -257,17 +260,23 @@ impl<S: AsyncRead + AsyncWrite + Unpin> SmuxStream<S> {
         let syn = SmuxSegment::syn(self.state.stream_id);
         let syn_bytes = syn.encode();
         debug!("SMUX SYN bytes: {:02x?}", syn_bytes);
-        self.inner.write_all(&syn_bytes).await
+        self.inner
+            .write_all(&syn_bytes)
+            .await
             .map_err(|e| TorError::Network(format!("Failed to send SMUX SYN: {}", e)))?;
 
         // Send initial window update
         let upd = SmuxSegment::upd(self.state.stream_id, 0, self.state.self_window);
         let upd_bytes = upd.encode();
         debug!("SMUX UPD bytes: {:02x?}", upd_bytes);
-        self.inner.write_all(&upd_bytes).await
+        self.inner
+            .write_all(&upd_bytes)
+            .await
             .map_err(|e| TorError::Network(format!("Failed to send SMUX UPD: {}", e)))?;
 
-        self.inner.flush().await
+        self.inner
+            .flush()
+            .await
             .map_err(|e| TorError::Network(format!("Failed to flush SMUX init: {}", e)))?;
 
         self.state.syn_sent = true;
@@ -292,7 +301,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> SmuxStream<S> {
         }
 
         let segment = SmuxSegment::psh(self.state.stream_id, data.to_vec());
-        self.inner.write_all(&segment.encode()).await
+        self.inner
+            .write_all(&segment.encode())
+            .await
             .map_err(|e| TorError::Network(format!("Failed to send SMUX data: {}", e)))?;
 
         self.state.self_write = self.state.self_write.wrapping_add(data.len() as u32);
@@ -329,7 +340,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> SmuxStream<S> {
 
             // Read more data
             let mut temp = [0u8; 4096];
-            let n = self.inner.read(&mut temp).await
+            let n = self
+                .inner
+                .read(&mut temp)
+                .await
                 .map_err(|e| TorError::Network(format!("SMUX read error: {}", e)))?;
 
             if n == 0 {
@@ -345,9 +359,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> SmuxStream<S> {
         let mut temp = [0u8; 4096];
 
         // Try non-blocking read
-        match futures::future::poll_fn(|cx| {
-            Pin::new(&mut self.inner).poll_read(cx, &mut temp)
-        }).await {
+        match futures::future::poll_fn(|cx| Pin::new(&mut self.inner).poll_read(cx, &mut temp))
+            .await
+        {
             Ok(n) if n > 0 => {
                 self.read_buffer.extend_from_slice(&temp[..n]);
             }
@@ -371,8 +385,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> SmuxStream<S> {
 
         // Validate stream ID (allow stream 0 for control messages)
         if segment.stream_id != self.state.stream_id && segment.stream_id != 0 {
-            trace!("Ignoring SMUX segment for stream {} (expected {})", 
-                   segment.stream_id, self.state.stream_id);
+            trace!(
+                "Ignoring SMUX segment for stream {} (expected {})",
+                segment.stream_id,
+                self.state.stream_id
+            );
             return Ok(Some(Vec::new())); // Empty = no data but continue
         }
 
@@ -393,7 +410,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> SmuxStream<S> {
 
                 // Update read counters
                 self.state.self_read = self.state.self_read.wrapping_add(segment.data.len() as u32);
-                self.state.self_increment = self.state.self_increment.wrapping_add(segment.data.len() as u32);
+                self.state.self_increment = self
+                    .state
+                    .self_increment
+                    .wrapping_add(segment.data.len() as u32);
 
                 // Send window update if needed
                 if self.state.should_send_update() {
@@ -402,7 +422,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> SmuxStream<S> {
                         self.state.self_read,
                         self.state.self_window,
                     );
-                    self.inner.write_all(&upd.encode()).await
+                    self.inner
+                        .write_all(&upd.encode())
+                        .await
                         .map_err(|e| TorError::Network(format!("Failed to send UPD: {}", e)))?;
                     self.state.self_increment = 0;
                 }
@@ -414,14 +436,20 @@ impl<S: AsyncRead + AsyncWrite + Unpin> SmuxStream<S> {
                 trace!("Received SMUX NOP, sending NOP response");
                 // Respond with NOP (ping-pong)
                 let nop = SmuxSegment::nop(segment.stream_id);
-                self.inner.write_all(&nop.encode()).await
+                self.inner
+                    .write_all(&nop.encode())
+                    .await
                     .map_err(|e| TorError::Network(format!("Failed to send NOP: {}", e)))?;
                 Ok(Some(Vec::new()))
             }
 
             SmuxCommand::Upd => {
                 let update = SmuxUpdate::decode(&segment.data)?;
-                trace!("Received SMUX UPD: consumed={}, window={}", update.consumed, update.window);
+                trace!(
+                    "Received SMUX UPD: consumed={}, window={}",
+                    update.consumed,
+                    update.window
+                );
                 self.state.peer_consumed = update.consumed;
                 self.state.peer_window = update.window;
                 Ok(Some(Vec::new()))
@@ -432,9 +460,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> SmuxStream<S> {
     /// Close the stream
     pub async fn close(&mut self) -> Result<()> {
         let fin = SmuxSegment::fin(self.state.stream_id);
-        self.inner.write_all(&fin.encode()).await
+        self.inner
+            .write_all(&fin.encode())
+            .await
             .map_err(|e| TorError::Network(format!("Failed to send FIN: {}", e)))?;
-        self.inner.flush().await
+        self.inner
+            .flush()
+            .await
             .map_err(|e| TorError::Network(format!("Failed to flush FIN: {}", e)))?;
         Ok(())
     }
@@ -446,9 +478,13 @@ impl<S: AsyncRead + Unpin> AsyncRead for SmuxStream<S> {
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        trace!("SMUX poll_read: buf size {}, data_buffer size {}, read_buffer size {}", 
-               buf.len(), self.data_buffer.len(), self.read_buffer.len());
-        
+        trace!(
+            "SMUX poll_read: buf size {}, data_buffer size {}, read_buffer size {}",
+            buf.len(),
+            self.data_buffer.len(),
+            self.read_buffer.len()
+        );
+
         // Drain data buffer first
         if !self.data_buffer.is_empty() {
             let len = std::cmp::min(buf.len(), self.data_buffer.len());
@@ -470,14 +506,25 @@ impl<S: AsyncRead + Unpin> AsyncRead for SmuxStream<S> {
 
                     match segment.command {
                         SmuxCommand::Syn => {
-                            debug!("SMUX poll_read: received SYN for stream {}", segment.stream_id);
+                            debug!(
+                                "SMUX poll_read: received SYN for stream {}",
+                                segment.stream_id
+                            );
                             self.state.syn_received = true;
                             continue;
                         }
                         SmuxCommand::Psh => {
-                            debug!("SMUX poll_read: received PSH {} bytes for stream {}", segment.data.len(), segment.stream_id);
-                            self.state.self_read = self.state.self_read.wrapping_add(segment.data.len() as u32);
-                            self.state.self_increment = self.state.self_increment.wrapping_add(segment.data.len() as u32);
+                            debug!(
+                                "SMUX poll_read: received PSH {} bytes for stream {}",
+                                segment.data.len(),
+                                segment.stream_id
+                            );
+                            self.state.self_read =
+                                self.state.self_read.wrapping_add(segment.data.len() as u32);
+                            self.state.self_increment = self
+                                .state
+                                .self_increment
+                                .wrapping_add(segment.data.len() as u32);
 
                             let len = std::cmp::min(buf.len(), segment.data.len());
                             buf[..len].copy_from_slice(&segment.data[..len]);
@@ -489,12 +536,18 @@ impl<S: AsyncRead + Unpin> AsyncRead for SmuxStream<S> {
                             return Poll::Ready(Ok(len));
                         }
                         SmuxCommand::Fin => {
-                            debug!("SMUX poll_read: received FIN for stream {}", segment.stream_id);
+                            debug!(
+                                "SMUX poll_read: received FIN for stream {}",
+                                segment.stream_id
+                            );
                             return Poll::Ready(Ok(0)); // EOF
                         }
                         SmuxCommand::Upd => {
                             if let Ok(update) = SmuxUpdate::decode(&segment.data) {
-                                debug!("SMUX poll_read: received UPD consumed={}, window={}", update.consumed, update.window);
+                                debug!(
+                                    "SMUX poll_read: received UPD consumed={}, window={}",
+                                    update.consumed, update.window
+                                );
                                 self.state.peer_consumed = update.consumed;
                                 self.state.peer_window = update.window;
                             }
@@ -507,7 +560,12 @@ impl<S: AsyncRead + Unpin> AsyncRead for SmuxStream<S> {
                     }
                 }
                 Ok(None) => break, // Need more data
-                Err(e) => return Poll::Ready(Err(io::Error::new(io::ErrorKind::InvalidData, e.to_string()))),
+                Err(e) => {
+                    return Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        e.to_string(),
+                    )))
+                }
             }
         }
 
@@ -520,7 +578,11 @@ impl<S: AsyncRead + Unpin> AsyncRead for SmuxStream<S> {
                 Poll::Ready(Ok(0))
             }
             Poll::Ready(Ok(n)) => {
-                debug!("SMUX poll_read: got {} bytes from inner: {:02x?}", n, &temp[..n]);
+                debug!(
+                    "SMUX poll_read: got {} bytes from inner: {:02x?}",
+                    n,
+                    &temp[..n]
+                );
                 self.read_buffer.extend_from_slice(&temp[..n]);
                 cx.waker().wake_by_ref();
                 Poll::Pending
@@ -548,9 +610,22 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for SmuxStream<S> {
             // For now, just try anyway - proper impl would wait
         }
 
+        // NOTE: We encode the entire frame and expect it to be written atomically.
+        // Partial writes will return WriteZero error. This is acceptable because:
+        // 1. SMUX frames are small (typically <64KB) and TCP usually handles them atomically
+        // 2. Proper partial-write buffering would add significant complexity
+        // 3. On WriteZero error, the connection is corrupted and unrecoverable
+        //
+        // Recovery: WriteZero means framing is broken. The caller MUST close the connection
+        // and establish a new one. Retrying on the same connection will send malformed data.
         let segment = SmuxSegment::psh(self.state.stream_id, buf.to_vec());
         let encoded = segment.encode();
-        debug!("SMUX poll_write: sending {} bytes data as {} byte frame: {:02x?}", buf.len(), encoded.len(), &encoded[..std::cmp::min(32, encoded.len())]);
+        debug!(
+            "SMUX poll_write: sending {} bytes data as {} byte frame: {:02x?}",
+            buf.len(),
+            encoded.len(),
+            &encoded[..std::cmp::min(32, encoded.len())]
+        );
 
         match Pin::new(&mut self.inner).poll_write(cx, &encoded) {
             Poll::Ready(Ok(n)) => {

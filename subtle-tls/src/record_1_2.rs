@@ -6,10 +6,9 @@
 use crate::crypto::{AesCbc, Cipher};
 use crate::error::{Result, TlsError};
 use crate::handshake_1_2::{
-    CipherSuiteParams, TLS_VERSION_1_2,
-    TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-    TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
-    TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
+    CipherSuiteParams, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+    TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
+    TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, TLS_VERSION_1_2,
 };
 use crate::prf;
 use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -78,13 +77,10 @@ impl RecordLayer12 {
     }
 
     /// Activate read cipher (server -> client)
-    pub async fn set_read_cipher(
-        &mut self,
-        key: &[u8],
-        iv: &[u8],
-        mac_key: &[u8],
-    ) -> Result<()> {
-        let params = self.params.as_ref()
+    pub async fn set_read_cipher(&mut self, key: &[u8], iv: &[u8], mac_key: &[u8]) -> Result<()> {
+        let params = self
+            .params
+            .as_ref()
             .ok_or_else(|| TlsError::protocol("Cipher suite not set"))?;
 
         let cipher_state = if params.is_aead {
@@ -105,7 +101,9 @@ impl RecordLayer12 {
                 AesCbc::new_256(key).await?
             };
             let mac_alg = match self.cipher_suite {
-                TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA | TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA => MacAlgorithm::Sha1,
+                TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA | TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA => {
+                    MacAlgorithm::Sha1
+                }
                 TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384 => MacAlgorithm::Sha384,
                 _ => MacAlgorithm::Sha256,
             };
@@ -124,13 +122,10 @@ impl RecordLayer12 {
     }
 
     /// Activate write cipher (client -> server)
-    pub async fn set_write_cipher(
-        &mut self,
-        key: &[u8],
-        iv: &[u8],
-        mac_key: &[u8],
-    ) -> Result<()> {
-        let params = self.params.as_ref()
+    pub async fn set_write_cipher(&mut self, key: &[u8], iv: &[u8], mac_key: &[u8]) -> Result<()> {
+        let params = self
+            .params
+            .as_ref()
             .ok_or_else(|| TlsError::protocol("Cipher suite not set"))?;
 
         let cipher_state = if params.is_aead {
@@ -151,7 +146,9 @@ impl RecordLayer12 {
                 AesCbc::new_256(key).await?
             };
             let mac_alg = match self.cipher_suite {
-                TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA | TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA => MacAlgorithm::Sha1,
+                TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA | TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA => {
+                    MacAlgorithm::Sha1
+                }
                 TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384 => MacAlgorithm::Sha384,
                 _ => MacAlgorithm::Sha256,
             };
@@ -176,8 +173,7 @@ impl RecordLayer12 {
     {
         // Read record header (5 bytes)
         let mut header = [0u8; 5];
-        stream.read_exact(&mut header).await
-            .map_err(TlsError::Io)?;
+        stream.read_exact(&mut header).await.map_err(TlsError::Io)?;
 
         let content_type = header[0];
         let _version = ((header[1] as u16) << 8) | (header[2] as u16);
@@ -189,8 +185,7 @@ impl RecordLayer12 {
 
         // Read record body
         let mut body = vec![0u8; length];
-        stream.read_exact(&mut body).await
-            .map_err(TlsError::Io)?;
+        stream.read_exact(&mut body).await.map_err(TlsError::Io)?;
 
         trace!("TLS 1.2 read record: type={}, len={}", content_type, length);
 
@@ -210,7 +205,11 @@ impl RecordLayer12 {
         body: &[u8],
     ) -> Result<Vec<u8>> {
         match cipher {
-            CipherState::Aead { cipher: aead, implicit_iv, sequence } => {
+            CipherState::Aead {
+                cipher: aead,
+                implicit_iv,
+                sequence,
+            } => {
                 // TLS 1.2 GCM: body = explicit_nonce (8 bytes) + ciphertext + tag (16 bytes)
                 if body.len() < 8 + 16 {
                     return Err(TlsError::record("AEAD record too short"));
@@ -239,7 +238,13 @@ impl RecordLayer12 {
 
                 Ok(plaintext)
             }
-            CipherState::Cbc { cipher: cbc, mac_key, sequence, mac_len, mac_alg } => {
+            CipherState::Cbc {
+                cipher: cbc,
+                mac_key,
+                sequence,
+                mac_len,
+                mac_alg,
+            } => {
                 // TLS 1.2 CBC: body = IV (16) + ciphertext (includes MAC + padding)
                 if body.len() < 16 + *mac_len + 1 {
                     return Err(TlsError::record("CBC record too short"));
@@ -264,27 +269,36 @@ impl RecordLayer12 {
 
                 // Verify MAC using appropriate hash algorithm
                 let computed_mac = match mac_alg {
-                    MacAlgorithm::Sha1 => prf::compute_mac_sha1(
-                        mac_key,
-                        *sequence,
-                        content_type,
-                        TLS_VERSION_1_2,
-                        plaintext,
-                    ).await?,
-                    MacAlgorithm::Sha256 => prf::compute_mac_sha256(
-                        mac_key,
-                        *sequence,
-                        content_type,
-                        TLS_VERSION_1_2,
-                        plaintext,
-                    ).await?,
-                    MacAlgorithm::Sha384 => prf::compute_mac_sha384(
-                        mac_key,
-                        *sequence,
-                        content_type,
-                        TLS_VERSION_1_2,
-                        plaintext,
-                    ).await?,
+                    MacAlgorithm::Sha1 => {
+                        prf::compute_mac_sha1(
+                            mac_key,
+                            *sequence,
+                            content_type,
+                            TLS_VERSION_1_2,
+                            plaintext,
+                        )
+                        .await?
+                    }
+                    MacAlgorithm::Sha256 => {
+                        prf::compute_mac_sha256(
+                            mac_key,
+                            *sequence,
+                            content_type,
+                            TLS_VERSION_1_2,
+                            plaintext,
+                        )
+                        .await?
+                    }
+                    MacAlgorithm::Sha384 => {
+                        prf::compute_mac_sha384(
+                            mac_key,
+                            *sequence,
+                            content_type,
+                            TLS_VERSION_1_2,
+                            plaintext,
+                        )
+                        .await?
+                    }
                 };
 
                 // Truncate computed MAC to expected length
@@ -311,7 +325,8 @@ impl RecordLayer12 {
     {
         // Split into multiple records if needed
         for chunk in data.chunks(MAX_PLAINTEXT_SIZE) {
-            self.write_single_record(stream, content_type, chunk).await?;
+            self.write_single_record(stream, content_type, chunk)
+                .await?;
         }
         Ok(())
     }
@@ -340,12 +355,14 @@ impl RecordLayer12 {
         record.push(body.len() as u8);
         record.extend_from_slice(&body);
 
-        trace!("TLS 1.2 write record: type={}, len={}", content_type, body.len());
+        trace!(
+            "TLS 1.2 write record: type={}, len={}",
+            content_type,
+            body.len()
+        );
 
-        stream.write_all(&record).await
-            .map_err(TlsError::Io)?;
-        stream.flush().await
-            .map_err(TlsError::Io)?;
+        stream.write_all(&record).await.map_err(TlsError::Io)?;
+        stream.flush().await.map_err(TlsError::Io)?;
 
         Ok(())
     }
@@ -357,7 +374,11 @@ impl RecordLayer12 {
         plaintext: &[u8],
     ) -> Result<Vec<u8>> {
         match cipher {
-            CipherState::Aead { cipher: aead, implicit_iv, sequence } => {
+            CipherState::Aead {
+                cipher: aead,
+                implicit_iv,
+                sequence,
+            } => {
                 // Generate explicit nonce from sequence number
                 let explicit_nonce = sequence.to_be_bytes();
 
@@ -386,30 +407,45 @@ impl RecordLayer12 {
 
                 Ok(result)
             }
-            CipherState::Cbc { cipher: cbc, mac_key, sequence, mac_len, mac_alg } => {
+            CipherState::Cbc {
+                cipher: cbc,
+                mac_key,
+                sequence,
+                mac_len,
+                mac_alg,
+            } => {
                 // Compute MAC using appropriate hash algorithm
                 let mac = match mac_alg {
-                    MacAlgorithm::Sha1 => prf::compute_mac_sha1(
-                        mac_key,
-                        *sequence,
-                        content_type,
-                        TLS_VERSION_1_2,
-                        plaintext,
-                    ).await?,
-                    MacAlgorithm::Sha256 => prf::compute_mac_sha256(
-                        mac_key,
-                        *sequence,
-                        content_type,
-                        TLS_VERSION_1_2,
-                        plaintext,
-                    ).await?,
-                    MacAlgorithm::Sha384 => prf::compute_mac_sha384(
-                        mac_key,
-                        *sequence,
-                        content_type,
-                        TLS_VERSION_1_2,
-                        plaintext,
-                    ).await?,
+                    MacAlgorithm::Sha1 => {
+                        prf::compute_mac_sha1(
+                            mac_key,
+                            *sequence,
+                            content_type,
+                            TLS_VERSION_1_2,
+                            plaintext,
+                        )
+                        .await?
+                    }
+                    MacAlgorithm::Sha256 => {
+                        prf::compute_mac_sha256(
+                            mac_key,
+                            *sequence,
+                            content_type,
+                            TLS_VERSION_1_2,
+                            plaintext,
+                        )
+                        .await?
+                    }
+                    MacAlgorithm::Sha384 => {
+                        prf::compute_mac_sha384(
+                            mac_key,
+                            *sequence,
+                            content_type,
+                            TLS_VERSION_1_2,
+                            plaintext,
+                        )
+                        .await?
+                    }
                 };
 
                 // Truncate MAC to expected length

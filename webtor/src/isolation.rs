@@ -73,9 +73,7 @@ impl IsolationKey {
                         format!("{}://{}:{}", url.scheme(), host, port)
                     }
                     StreamIsolationPolicy::PerSubdomain => host.to_string(),
-                    StreamIsolationPolicy::PerDomain => {
-                        extract_domain(host)
-                    }
+                    StreamIsolationPolicy::PerDomain => extract_domain(host),
                     StreamIsolationPolicy::None => unreachable!(),
                 };
 
@@ -167,11 +165,13 @@ mod tests {
         let https_url = Url::parse("https://example.com/").unwrap();
 
         let http_key = IsolationKey::from_url(&http_url, StreamIsolationPolicy::PerDomain).unwrap();
-        let https_key = IsolationKey::from_url(&https_url, StreamIsolationPolicy::PerDomain).unwrap();
+        let https_key =
+            IsolationKey::from_url(&https_url, StreamIsolationPolicy::PerDomain).unwrap();
         assert_eq!(http_key, https_key);
 
         let http_key = IsolationKey::from_url(&http_url, StreamIsolationPolicy::PerOrigin).unwrap();
-        let https_key = IsolationKey::from_url(&https_url, StreamIsolationPolicy::PerOrigin).unwrap();
+        let https_key =
+            IsolationKey::from_url(&https_url, StreamIsolationPolicy::PerOrigin).unwrap();
         assert_ne!(http_key, https_key);
     }
 

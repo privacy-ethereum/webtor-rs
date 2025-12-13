@@ -6,8 +6,8 @@
 use crate::crypto::Cipher;
 use crate::error::{Result, TlsError};
 use crate::handshake::{
-    CONTENT_TYPE_APPLICATION_DATA, CONTENT_TYPE_HANDSHAKE, TLS_VERSION_1_2,
-    TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256,
+    CONTENT_TYPE_APPLICATION_DATA, CONTENT_TYPE_HANDSHAKE, TLS_AES_128_GCM_SHA256,
+    TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256, TLS_VERSION_1_2,
 };
 use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::{debug, trace};
@@ -92,7 +92,10 @@ impl RecordLayer {
     pub async fn set_read_cipher(&mut self, key: &[u8], iv: &[u8]) -> Result<()> {
         let aead = self.create_cipher(key).await?;
         self.read_cipher = Some(RecordCipher::new(aead, iv.to_vec()));
-        debug!("Read cipher activated (cipher suite: 0x{:04x})", self.cipher_suite);
+        debug!(
+            "Read cipher activated (cipher suite: 0x{:04x})",
+            self.cipher_suite
+        );
         Ok(())
     }
 
@@ -100,7 +103,10 @@ impl RecordLayer {
     pub async fn set_write_cipher(&mut self, key: &[u8], iv: &[u8]) -> Result<()> {
         let aead = self.create_cipher(key).await?;
         self.write_cipher = Some(RecordCipher::new(aead, iv.to_vec()));
-        debug!("Write cipher activated (cipher suite: 0x{:04x})", self.cipher_suite);
+        debug!(
+            "Write cipher activated (cipher suite: 0x{:04x})",
+            self.cipher_suite
+        );
         Ok(())
     }
 
@@ -110,14 +116,16 @@ impl RecordLayer {
         S: AsyncRead + Unpin,
     {
         // Read record header (5 bytes)
-        tracing::info!("read_record: waiting for 5-byte header (cipher active: {})", self.read_cipher.is_some());
+        tracing::debug!(
+            "read_record: waiting for 5-byte header (cipher active: {})",
+            self.read_cipher.is_some()
+        );
         let mut header = [0u8; 5];
-        stream.read_exact(&mut header).await
-            .map_err(|e| {
-                tracing::error!("read_record: read_exact for header failed: {}", e);
-                TlsError::Io(e)
-            })?;
-        tracing::info!("read_record: got header: {:02x?}", header);
+        stream.read_exact(&mut header).await.map_err(|e| {
+            tracing::error!("read_record: read_exact for header failed: {}", e);
+            TlsError::Io(e)
+        })?;
+        tracing::debug!("read_record: got header: {:02x?}", header);
 
         let content_type = header[0];
         let _version = ((header[1] as u16) << 8) | (header[2] as u16);
@@ -128,27 +136,38 @@ impl RecordLayer {
         }
 
         // Read record body
-        tracing::info!("read_record: reading {} byte body", length);
+        tracing::debug!("read_record: reading {} byte body", length);
         let mut body = vec![0u8; length];
-        stream.read_exact(&mut body).await
-            .map_err(|e| {
-                tracing::error!("read_record: body read failed: {}", e);
-                TlsError::Io(e)
-            })?;
-        tracing::info!("read_record: got body, type={}, len={}", content_type, length);
+        stream.read_exact(&mut body).await.map_err(|e| {
+            tracing::error!("read_record: body read failed: {}", e);
+            TlsError::Io(e)
+        })?;
+        tracing::debug!(
+            "read_record: got body, type={}, len={}",
+            content_type,
+            length
+        );
 
         trace!("Read record: type={}, len={}", content_type, length);
 
         // Decrypt if cipher is active
         if let Some(ref mut cipher) = self.read_cipher {
             if content_type == CONTENT_TYPE_APPLICATION_DATA {
-                tracing::info!("read_record: decrypting APPLICATION_DATA record");
+                tracing::debug!("read_record: decrypting APPLICATION_DATA record");
                 let nonce = cipher.compute_nonce();
-                tracing::info!("read_record: nonce={:02x?}, body_len={}", &nonce, body.len());
+                tracing::debug!(
+                    "read_record: nonce={:02x?}, body_len={}",
+                    &nonce,
+                    body.len()
+                );
                 // Additional data is the record header with encrypted length
                 let aad = &header;
-                
-                tracing::info!("read_record: calling aead.decrypt (key_size={}, aad={:02x?})", cipher.aead.key_size(), aad);
+
+                tracing::debug!(
+                    "read_record: calling aead.decrypt (key_size={}, aad={:02x?})",
+                    cipher.aead.key_size(),
+                    aad
+                );
                 let plaintext = cipher.aead.decrypt(&nonce, aad, &body).await?;
                 cipher.increment_sequence();
 
@@ -158,11 +177,15 @@ impl RecordLayer {
                 if plaintext.is_empty() {
                     return Err(TlsError::record("Empty decrypted record"));
                 }
-                
+
                 let actual_content_type = plaintext[plaintext.len() - 1];
                 let data = plaintext[..plaintext.len() - 1].to_vec();
 
-                trace!("Decrypted record: type={}, len={}", actual_content_type, data.len());
+                trace!(
+                    "Decrypted record: type={}, len={}",
+                    actual_content_type,
+                    data.len()
+                );
                 return Ok((actual_content_type, data));
             }
         }
@@ -182,7 +205,8 @@ impl RecordLayer {
     {
         // Split into multiple records if needed
         for chunk in data.chunks(MAX_PLAINTEXT_SIZE) {
-            self.write_single_record(stream, content_type, chunk).await?;
+            self.write_single_record(stream, content_type, chunk)
+                .await?;
         }
         Ok(())
     }
@@ -202,7 +226,7 @@ impl RecordLayer {
             plaintext.push(content_type);
 
             let nonce = cipher.compute_nonce();
-            
+
             // Build header for AAD (we need to know ciphertext length first)
             let ciphertext_len = plaintext.len() + 16; // +16 for auth tag
             let aad = [
@@ -232,10 +256,11 @@ impl RecordLayer {
 
         trace!("Write record: type={}, len={}", record_type, body.len());
 
-        stream.write_all(&record).await
+        stream
+            .write_all(&record)
+            .await
             .map_err(|e| TlsError::Io(e))?;
-        stream.flush().await
-            .map_err(|e| TlsError::Io(e))?;
+        stream.flush().await.map_err(|e| TlsError::Io(e))?;
 
         Ok(())
     }
@@ -247,9 +272,9 @@ impl RecordLayer {
         S: AsyncRead + Unpin,
     {
         let mut messages = Vec::new();
-        
+
         let (content_type, data) = self.read_record(stream).await?;
-        
+
         if content_type != CONTENT_TYPE_HANDSHAKE {
             return Err(TlsError::UnexpectedMessage {
                 expected: "Handshake".to_string(),
@@ -261,9 +286,9 @@ impl RecordLayer {
         let mut pos = 0;
         while pos + 4 <= data.len() {
             let msg_type = data[pos];
-            let length = ((data[pos + 1] as usize) << 16) 
-                       | ((data[pos + 2] as usize) << 8) 
-                       | (data[pos + 3] as usize);
+            let length = ((data[pos + 1] as usize) << 16)
+                | ((data[pos + 2] as usize) << 8)
+                | (data[pos + 3] as usize);
             pos += 4;
 
             if pos + length > data.len() {
@@ -300,7 +325,7 @@ impl RecordLayer {
     pub fn decrypt_record_sync(&mut self, header: &[u8; 5], body: &[u8]) -> Result<(u8, Vec<u8>)> {
         if let Some(ref mut cipher) = self.read_cipher {
             let nonce = cipher.compute_nonce();
-            
+
             // Decrypt using synchronous API
             let plaintext = cipher.aead.decrypt_sync(&nonce, header, body)?;
             cipher.increment_sequence();
@@ -328,7 +353,7 @@ impl RecordLayer {
             plaintext.push(content_type);
 
             let nonce = cipher.compute_nonce();
-            
+
             // Build header for AAD (we need to know ciphertext length first)
             let ciphertext_len = plaintext.len() + 16; // +16 for auth tag
             let header = [

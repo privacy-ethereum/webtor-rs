@@ -34,7 +34,7 @@
     },
     {
       "topic": "Build",
-      "content": "Run ./build.sh for full WASM build. Use wasm-pack for individual crates. Native builds via cargo build. See AGENTS.md for specific commands."
+      "content": "Run ./build.sh for full WASM build. Use wasm-pack for individual crates. Native builds via cargo build. See AGENTS.md for specific commands. webtor-wasm/build.rs extracts dependency versions from Cargo.toml files at compile time."
     }
   ],
   "pages": [

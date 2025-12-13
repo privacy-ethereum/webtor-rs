@@ -18,7 +18,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
-use tracing::{trace, debug};
+use tracing::{debug, trace};
 
 /// Output buffer that collects data from KCP for sending
 #[derive(Clone)]
@@ -82,9 +82,9 @@ impl Default for KcpConfig {
             // conn.SetNoDelay(0, 0, 0, 1) means:
             // nodelay=0 (default), interval=0 (default 100ms), resend=0 (off), nc=1 (congestion off)
             nodelay: false,
-            interval: 100,  // Default KCP interval
-            resend: 0,      // No fast resend
-            nc: true,       // Disable congestion control (nc=1 in Go)
+            interval: 100, // Default KCP interval
+            resend: 0,     // No fast resend
+            nc: true,      // Disable congestion control (nc=1 in Go)
             snd_wnd: 128,
             rcv_wnd: 128,
         }
@@ -142,7 +142,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin> KcpStream<S> {
         let current = self.current_ms();
 
         // Update KCP (handles retransmission, ACKs, etc.)
-        self.kcp.update(current)
+        self.kcp
+            .update(current)
             .map_err(|e| TorError::Protocol(format!("KCP update error: {:?}", e)))?;
 
         self.last_update = current;
@@ -158,9 +159,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> KcpStream<S> {
         let data = self.output.take();
         if !data.is_empty() {
             trace!("KCP sending {} bytes to transport", data.len());
-            self.transport.write_all(&data).await
+            self.transport
+                .write_all(&data)
+                .await
                 .map_err(|e| TorError::Network(format!("KCP transport write error: {}", e)))?;
-            self.transport.flush().await
+            self.transport
+                .flush()
+                .await
                 .map_err(|e| TorError::Network(format!("KCP transport flush error: {}", e)))?;
         }
         Ok(())
@@ -174,10 +179,17 @@ impl<S: AsyncRead + AsyncWrite + Unpin> KcpStream<S> {
         // Non-blocking read attempt using poll
         let n = match futures::future::poll_fn(|cx| {
             Pin::new(&mut self.transport).poll_read(cx, &mut temp)
-        }).await {
+        })
+        .await
+        {
             Ok(n) => n,
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(false),
-            Err(e) => return Err(TorError::Network(format!("KCP transport read error: {}", e))),
+            Err(e) => {
+                return Err(TorError::Network(format!(
+                    "KCP transport read error: {}",
+                    e
+                )))
+            }
         };
 
         if n == 0 {
@@ -187,7 +199,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin> KcpStream<S> {
         trace!("KCP received {} bytes from transport", n);
 
         // Feed to KCP
-        self.kcp.input(&temp[..n])
+        self.kcp
+            .input(&temp[..n])
             .map_err(|e| TorError::Protocol(format!("KCP input error: {:?}", e)))?;
 
         Ok(true)
@@ -195,7 +208,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> KcpStream<S> {
 
     /// Send data through KCP
     pub async fn send(&mut self, data: &[u8]) -> Result<usize> {
-        let sent = self.kcp.send(data)
+        let sent = self
+            .kcp
+            .send(data)
             .map_err(|e| TorError::Protocol(format!("KCP send error: {:?}", e)))?;
 
         // Immediately try to flush
@@ -234,7 +249,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> KcpStream<S> {
                     use crate::wasm_runtime::WasmRuntime;
                     use tor_rtcompat::SleepProvider;
                     let runtime = WasmRuntime::new();
-                    runtime.sleep(Duration::from_millis(check.min(10) as u64)).await;
+                    runtime
+                        .sleep(Duration::from_millis(check.min(10) as u64))
+                        .await;
                 }
             }
         }
@@ -257,10 +274,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for KcpStream<S> {
                 return Poll::Ready(Ok(n));
             }
             Err(kcp::Error::RecvQueueEmpty) => {}
-            Err(e) => return Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("KCP recv error: {:?}", e),
-            ))),
+            Err(e) => {
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("KCP recv error: {:?}", e),
+                )))
+            }
         }
 
         // Need more data from transport
@@ -294,9 +313,14 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for KcpStream<S> {
                 // We need to send ACKs immediately or the sender will retransmit
                 let output_data = self.output.take();
                 if !output_data.is_empty() {
-                    debug!("KCP read: sending {} bytes of KCP output (ACKs)", output_data.len());
+                    debug!(
+                        "KCP read: sending {} bytes of KCP output (ACKs)",
+                        output_data.len()
+                    );
                     // Try to write ACKs immediately
-                    if let Poll::Ready(Err(e)) = Pin::new(&mut self.transport).poll_write(cx, &output_data) {
+                    if let Poll::Ready(Err(e)) =
+                        Pin::new(&mut self.transport).poll_write(cx, &output_data)
+                    {
                         return Poll::Ready(Err(e));
                     }
                     // Also try to flush
@@ -336,12 +360,12 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for KcpStream<S> {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         debug!("KCP write: sending {} bytes", buf.len());
-        
+
         // Queue data in KCP
         match self.kcp.send(buf) {
             Ok(n) => {
                 debug!("KCP write: queued {} bytes in KCP", n);
-                
+
                 // Update KCP state first (required before flush)
                 let current = self.current_ms();
                 if let Err(e) = self.kcp.update(current) {
@@ -350,7 +374,7 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for KcpStream<S> {
                         format!("KCP update error: {:?}", e),
                     )));
                 }
-                
+
                 // Force flush to produce output immediately
                 if let Err(e) = self.kcp.flush() {
                     return Poll::Ready(Err(io::Error::new(
@@ -362,7 +386,10 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for KcpStream<S> {
                 // Flush output
                 let output_data = self.output.take();
                 if !output_data.is_empty() {
-                    debug!("KCP write: flushing {} bytes to transport", output_data.len());
+                    debug!(
+                        "KCP write: flushing {} bytes to transport",
+                        output_data.len()
+                    );
                     match Pin::new(&mut self.transport).poll_write(cx, &output_data) {
                         Poll::Ready(Ok(written)) => {
                             debug!("KCP write: wrote {} bytes to transport", written);
@@ -408,7 +435,7 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for KcpStream<S> {
                 }
             }
         }
-        
+
         // Flush KCP output
         let _current = self.current_ms();
         if let Err(e) = self.kcp.flush() {

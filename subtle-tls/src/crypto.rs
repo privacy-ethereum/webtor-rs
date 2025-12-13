@@ -27,23 +27,23 @@ pub fn get_subtle_crypto() -> Result<SubtleCrypto> {
             return Ok(crypto.subtle());
         }
     }
-    
+
     // Fall back to globalThis.crypto for Node.js
     let global = js_sys::global();
     let crypto = Reflect::get(&global, &"crypto".into())
         .map_err(|_| TlsError::subtle_crypto("No crypto object in globalThis"))?;
-    
+
     if crypto.is_undefined() {
         return Err(TlsError::subtle_crypto("globalThis.crypto is undefined"));
     }
-    
+
     let subtle = Reflect::get(&crypto, &"subtle".into())
         .map_err(|_| TlsError::subtle_crypto("No subtle property on crypto"))?;
-    
+
     if subtle.is_undefined() {
         return Err(TlsError::subtle_crypto("crypto.subtle is undefined"));
     }
-    
+
     Ok(subtle.unchecked_into())
 }
 
@@ -80,8 +80,9 @@ impl EcdhKeyPair {
 
         // Generate key pair
         let key_pair = JsFuture::from(
-            subtle.generate_key_with_object(&algorithm, true, &key_usages)
-                .map_err(|e| TlsError::subtle_crypto(format!("Failed to generate key: {:?}", e)))?
+            subtle
+                .generate_key_with_object(&algorithm, true, &key_usages)
+                .map_err(|e| TlsError::subtle_crypto(format!("Failed to generate key: {:?}", e)))?,
         )
         .await
         .map_err(|e| TlsError::subtle_crypto(format!("Key generation failed: {:?}", e)))?;
@@ -90,7 +91,7 @@ impl EcdhKeyPair {
         let private_key: CryptoKey = Reflect::get(&key_pair, &"privateKey".into())
             .map_err(|_| TlsError::subtle_crypto("Failed to get private key"))?
             .unchecked_into();
-        
+
         let public_key: CryptoKey = Reflect::get(&key_pair, &"publicKey".into())
             .map_err(|_| TlsError::subtle_crypto("Failed to get public key"))?
             .unchecked_into();
@@ -108,8 +109,9 @@ impl EcdhKeyPair {
     /// Export public key as uncompressed point (0x04 || x || y)
     async fn export_public_key(subtle: &SubtleCrypto, key: &CryptoKey) -> Result<Vec<u8>> {
         let exported = JsFuture::from(
-            subtle.export_key("raw", key)
-                .map_err(|e| TlsError::subtle_crypto(format!("Failed to export key: {:?}", e)))?
+            subtle
+                .export_key("raw", key)
+                .map_err(|e| TlsError::subtle_crypto(format!("Failed to export key: {:?}", e)))?,
         )
         .await
         .map_err(|e| TlsError::subtle_crypto(format!("Key export failed: {:?}", e)))?;
@@ -135,8 +137,9 @@ impl EcdhKeyPair {
 
         // Derive 32 bytes (256 bits) shared secret
         let shared_secret = JsFuture::from(
-            subtle.derive_bits_with_object(&algorithm, &self.private_key, 256)
-                .map_err(|e| TlsError::subtle_crypto(format!("Failed to derive bits: {:?}", e)))?
+            subtle
+                .derive_bits_with_object(&algorithm, &self.private_key, 256)
+                .map_err(|e| TlsError::subtle_crypto(format!("Failed to derive bits: {:?}", e)))?,
         )
         .await
         .map_err(|e| TlsError::subtle_crypto(format!("Derive bits failed: {:?}", e)))?;
@@ -159,14 +162,9 @@ impl EcdhKeyPair {
         let key_usages = Array::new();
 
         let key = JsFuture::from(
-            subtle.import_key_with_object(
-                "raw",
-                &key_data.buffer(),
-                &algorithm,
-                true,
-                &key_usages,
-            )
-            .map_err(|e| TlsError::subtle_crypto(format!("Failed to import key: {:?}", e)))?
+            subtle
+                .import_key_with_object("raw", &key_data.buffer(), &algorithm, true, &key_usages)
+                .map_err(|e| TlsError::subtle_crypto(format!("Failed to import key: {:?}", e)))?,
         )
         .await
         .map_err(|e| TlsError::subtle_crypto(format!("Key import failed: {:?}", e)))?;
@@ -187,11 +185,11 @@ impl X25519KeyPair {
         let mut rng_bytes = [0u8; 32];
         getrandom::getrandom(&mut rng_bytes)
             .map_err(|e| TlsError::crypto(format!("Failed to generate random bytes: {}", e)))?;
-        
+
         // Create secret from random bytes
         let secret = EphemeralSecret::random_from_rng(&mut rand::rngs::OsRng);
         let public = X25519PublicKey::from(&secret);
-        
+
         Ok(Self {
             secret,
             public_key_bytes: public.as_bytes().to_vec(),
@@ -200,19 +198,25 @@ impl X25519KeyPair {
 
     /// Derive shared secret from peer's public key
     pub fn derive_shared_secret(self, peer_public_key_bytes: &[u8]) -> Result<Vec<u8>> {
-        tracing::info!("X25519 derive_shared_secret: peer key {} bytes", peer_public_key_bytes.len());
+        tracing::info!(
+            "X25519 derive_shared_secret: peer key {} bytes",
+            peer_public_key_bytes.len()
+        );
         if peer_public_key_bytes.len() != 32 {
             return Err(TlsError::crypto("X25519 public key must be 32 bytes"));
         }
-        
+
         let mut peer_bytes = [0u8; 32];
         peer_bytes.copy_from_slice(peer_public_key_bytes);
         tracing::info!("X25519: creating peer public key");
         let peer_public = X25519PublicKey::from(peer_bytes);
-        
+
         tracing::info!("X25519: computing diffie_hellman");
         let shared_secret = self.secret.diffie_hellman(&peer_public);
-        tracing::info!("X25519: diffie_hellman complete, {} bytes", shared_secret.as_bytes().len());
+        tracing::info!(
+            "X25519: diffie_hellman complete, {} bytes",
+            shared_secret.as_bytes().len()
+        );
         Ok(shared_secret.as_bytes().to_vec())
     }
 }
@@ -245,7 +249,7 @@ impl KeyExchange {
     /// Get the named group code for TLS
     pub fn named_group(&self) -> u16 {
         match self {
-            KeyExchange::P256(_) => 0x0017, // secp256r1
+            KeyExchange::P256(_) => 0x0017,   // secp256r1
             KeyExchange::X25519(_) => 0x001d, // x25519
         }
     }
@@ -282,22 +286,21 @@ impl AesGcm {
         let algorithm = Object::new();
         Reflect::set(&algorithm, &"name".into(), &"AES-GCM".into())
             .map_err(|_| TlsError::subtle_crypto("Failed to set algorithm name"))?;
-        Reflect::set(&algorithm, &"length".into(), &JsValue::from_f64(bits as f64))
-            .map_err(|_| TlsError::subtle_crypto("Failed to set key length"))?;
+        Reflect::set(
+            &algorithm,
+            &"length".into(),
+            &JsValue::from_f64(bits as f64),
+        )
+        .map_err(|_| TlsError::subtle_crypto("Failed to set key length"))?;
 
         let key_usages = Array::new();
         key_usages.push(&"encrypt".into());
         key_usages.push(&"decrypt".into());
 
         let key = JsFuture::from(
-            subtle.import_key_with_object(
-                "raw",
-                &key_data.buffer(),
-                &algorithm,
-                false,
-                &key_usages,
-            )
-            .map_err(|e| TlsError::subtle_crypto(format!("Failed to import key: {:?}", e)))?
+            subtle
+                .import_key_with_object("raw", &key_data.buffer(), &algorithm, false, &key_usages)
+                .map_err(|e| TlsError::subtle_crypto(format!("Failed to import key: {:?}", e)))?,
         )
         .await
         .map_err(|e| TlsError::subtle_crypto(format!("Key import failed: {:?}", e)))?;
@@ -331,12 +334,13 @@ impl AesGcm {
             .map_err(|_| TlsError::subtle_crypto("Failed to set tagLength"))?;
 
         let ciphertext = JsFuture::from(
-            subtle.encrypt_with_object_and_buffer_source(
-                &algorithm,
-                &self.key,
-                &plaintext_array.buffer(),
-            )
-            .map_err(|e| TlsError::subtle_crypto(format!("Encryption failed: {:?}", e)))?
+            subtle
+                .encrypt_with_object_and_buffer_source(
+                    &algorithm,
+                    &self.key,
+                    &plaintext_array.buffer(),
+                )
+                .map_err(|e| TlsError::subtle_crypto(format!("Encryption failed: {:?}", e)))?,
         )
         .await
         .map_err(|e| TlsError::subtle_crypto(format!("Encryption failed: {:?}", e)))?;
@@ -348,7 +352,10 @@ impl AesGcm {
 
     /// Decrypt ciphertext (with tag appended) using the given nonce and additional data
     pub async fn decrypt(&self, nonce: &[u8], aad: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
-        tracing::info!("AesGcm::decrypt called, ciphertext len={}", ciphertext.len());
+        tracing::info!(
+            "AesGcm::decrypt called, ciphertext len={}",
+            ciphertext.len()
+        );
         if nonce.len() != 12 {
             return Err(TlsError::crypto("AES-GCM requires 12-byte nonce"));
         }
@@ -373,23 +380,22 @@ impl AesGcm {
             .map_err(|_| TlsError::subtle_crypto("Failed to set tagLength"))?;
 
         tracing::info!("AesGcm::decrypt: calling subtle.decrypt");
-        let promise: js_sys::Promise = subtle.decrypt_with_object_and_buffer_source(
-            &algorithm,
-            &self.key,
-            &ciphertext_array.buffer(),
-        )
-        .map_err(|e| TlsError::subtle_crypto(format!("Decryption failed: {:?}", e)))?;
-        
+        let promise: js_sys::Promise = subtle
+            .decrypt_with_object_and_buffer_source(
+                &algorithm,
+                &self.key,
+                &ciphertext_array.buffer(),
+            )
+            .map_err(|e| TlsError::subtle_crypto(format!("Decryption failed: {:?}", e)))?;
+
         tracing::info!("AesGcm::decrypt: awaiting promise via JsFuture");
-        
+
         // The key insight: we need to let the JavaScript event loop run
         // JsFuture::from(promise).await should work if the executor properly yields
-        let plaintext = JsFuture::from(promise)
-            .await
-            .map_err(|e| {
-                tracing::error!("AesGcm::decrypt: JsFuture error: {:?}", e);
-                TlsError::crypto(format!("Decryption failed (bad tag?): {:?}", e))
-            })?;
+        let plaintext = JsFuture::from(promise).await.map_err(|e| {
+            tracing::error!("AesGcm::decrypt: JsFuture error: {:?}", e);
+            TlsError::crypto(format!("Decryption failed (bad tag?): {:?}", e))
+        })?;
         tracing::info!("AesGcm::decrypt: decryption completed");
 
         let array_buffer: ArrayBuffer = plaintext.unchecked_into();
@@ -433,22 +439,21 @@ impl AesCbc {
         let algorithm = Object::new();
         Reflect::set(&algorithm, &"name".into(), &"AES-CBC".into())
             .map_err(|_| TlsError::subtle_crypto("Failed to set algorithm name"))?;
-        Reflect::set(&algorithm, &"length".into(), &JsValue::from_f64(bits as f64))
-            .map_err(|_| TlsError::subtle_crypto("Failed to set key length"))?;
+        Reflect::set(
+            &algorithm,
+            &"length".into(),
+            &JsValue::from_f64(bits as f64),
+        )
+        .map_err(|_| TlsError::subtle_crypto("Failed to set key length"))?;
 
         let key_usages = Array::new();
         key_usages.push(&"encrypt".into());
         key_usages.push(&"decrypt".into());
 
         let key = JsFuture::from(
-            subtle.import_key_with_object(
-                "raw",
-                &key_data.buffer(),
-                &algorithm,
-                false,
-                &key_usages,
-            )
-            .map_err(|e| TlsError::subtle_crypto(format!("Failed to import key: {:?}", e)))?
+            subtle
+                .import_key_with_object("raw", &key_data.buffer(), &algorithm, false, &key_usages)
+                .map_err(|e| TlsError::subtle_crypto(format!("Failed to import key: {:?}", e)))?,
         )
         .await
         .map_err(|e| TlsError::subtle_crypto(format!("Key import failed: {:?}", e)))?;
@@ -477,12 +482,13 @@ impl AesCbc {
             .map_err(|_| TlsError::subtle_crypto("Failed to set iv"))?;
 
         let ciphertext = JsFuture::from(
-            subtle.encrypt_with_object_and_buffer_source(
-                &algorithm,
-                &self.key,
-                &plaintext_array.buffer(),
-            )
-            .map_err(|e| TlsError::subtle_crypto(format!("Encryption failed: {:?}", e)))?
+            subtle
+                .encrypt_with_object_and_buffer_source(
+                    &algorithm,
+                    &self.key,
+                    &plaintext_array.buffer(),
+                )
+                .map_err(|e| TlsError::subtle_crypto(format!("Encryption failed: {:?}", e)))?,
         )
         .await
         .map_err(|e| TlsError::subtle_crypto(format!("Encryption failed: {:?}", e)))?;
@@ -499,7 +505,9 @@ impl AesCbc {
             return Err(TlsError::crypto("AES-CBC requires 16-byte IV"));
         }
         if ciphertext.is_empty() || ciphertext.len() % 16 != 0 {
-            return Err(TlsError::crypto("AES-CBC ciphertext must be multiple of 16 bytes"));
+            return Err(TlsError::crypto(
+                "AES-CBC ciphertext must be multiple of 16 bytes",
+            ));
         }
 
         let subtle = get_subtle_crypto()?;
@@ -513,15 +521,18 @@ impl AesCbc {
             .map_err(|_| TlsError::subtle_crypto("Failed to set iv"))?;
 
         let plaintext = JsFuture::from(
-            subtle.decrypt_with_object_and_buffer_source(
-                &algorithm,
-                &self.key,
-                &ciphertext_array.buffer(),
-            )
-            .map_err(|e| TlsError::subtle_crypto(format!("Decryption failed: {:?}", e)))?
+            subtle
+                .decrypt_with_object_and_buffer_source(
+                    &algorithm,
+                    &self.key,
+                    &ciphertext_array.buffer(),
+                )
+                .map_err(|e| TlsError::subtle_crypto(format!("Decryption failed: {:?}", e)))?,
         )
         .await
-        .map_err(|e| TlsError::subtle_crypto(format!("Decryption failed (bad padding?): {:?}", e)))?;
+        .map_err(|e| {
+            TlsError::subtle_crypto(format!("Decryption failed (bad padding?): {:?}", e))
+        })?;
 
         let array_buffer: ArrayBuffer = plaintext.unchecked_into();
         let uint8_array = Uint8Array::new(&array_buffer);
@@ -541,10 +552,10 @@ impl ChaCha20Poly1305Cipher {
         if key_bytes.len() != 32 {
             return Err(TlsError::crypto("ChaCha20-Poly1305 requires 32-byte key"));
         }
-        
+
         let key = chacha20poly1305::Key::from_slice(key_bytes);
         let cipher = ChaCha20Poly1305::new(key);
-        
+
         Ok(Self { cipher })
     }
 
@@ -630,7 +641,9 @@ impl Cipher {
     pub fn encrypt_sync(&self, nonce: &[u8], aad: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
         match self {
             Cipher::ChaCha20Poly1305(c) => c.encrypt(nonce, aad, plaintext),
-            _ => Err(TlsError::crypto("Synchronous encryption only supported for ChaCha20-Poly1305")),
+            _ => Err(TlsError::crypto(
+                "Synchronous encryption only supported for ChaCha20-Poly1305",
+            )),
         }
     }
 
@@ -638,7 +651,9 @@ impl Cipher {
     pub fn decrypt_sync(&self, nonce: &[u8], aad: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
         match self {
             Cipher::ChaCha20Poly1305(c) => c.decrypt(nonce, aad, ciphertext),
-            _ => Err(TlsError::crypto("Synchronous decryption only supported for ChaCha20-Poly1305")),
+            _ => Err(TlsError::crypto(
+                "Synchronous decryption only supported for ChaCha20-Poly1305",
+            )),
         }
     }
 
@@ -675,7 +690,11 @@ impl Hkdf {
         } else {
             salt.to_vec()
         };
-        tracing::trace!("HKDF-Extract: salt_len={}, ikm_len={}", effective_salt.len(), ikm.len());
+        tracing::trace!(
+            "HKDF-Extract: salt_len={}, ikm_len={}",
+            effective_salt.len(),
+            ikm.len()
+        );
         Self::hmac_sha256(&effective_salt, ikm).await
     }
 
@@ -683,7 +702,7 @@ impl Hkdf {
     pub async fn expand(prk: &[u8], info: &[u8], length: usize) -> Result<Vec<u8>> {
         let hash_len = 32; // SHA-256
         let n = (length + hash_len - 1) / hash_len;
-        
+
         if n > 255 {
             return Err(TlsError::crypto("HKDF output too long"));
         }
@@ -761,14 +780,11 @@ impl Hkdf {
         key_usages.push(&"sign".into());
 
         let crypto_key = JsFuture::from(
-            subtle.import_key_with_object(
-                "raw",
-                &key_data.buffer(),
-                &algorithm,
-                false,
-                &key_usages,
-            )
-            .map_err(|e| TlsError::subtle_crypto(format!("Failed to import HMAC key: {:?}", e)))?
+            subtle
+                .import_key_with_object("raw", &key_data.buffer(), &algorithm, false, &key_usages)
+                .map_err(|e| {
+                    TlsError::subtle_crypto(format!("Failed to import HMAC key: {:?}", e))
+                })?,
         )
         .await
         .map_err(|e| TlsError::subtle_crypto(format!("HMAC key import failed: {:?}", e)))?;
@@ -778,8 +794,9 @@ impl Hkdf {
         // Sign (compute HMAC)
         let data_array = Uint8Array::from(data);
         let signature = JsFuture::from(
-            subtle.sign_with_str_and_buffer_source("HMAC", &crypto_key, &data_array.buffer())
-                .map_err(|e| TlsError::subtle_crypto(format!("HMAC sign failed: {:?}", e)))?
+            subtle
+                .sign_with_str_and_buffer_source("HMAC", &crypto_key, &data_array.buffer())
+                .map_err(|e| TlsError::subtle_crypto(format!("HMAC sign failed: {:?}", e)))?,
         )
         .await
         .map_err(|e| TlsError::subtle_crypto(format!("HMAC computation failed: {:?}", e)))?;
@@ -796,8 +813,9 @@ pub async fn sha256(data: &[u8]) -> Result<Vec<u8>> {
     let data_array = Uint8Array::from(data);
 
     let hash = JsFuture::from(
-        subtle.digest_with_str_and_buffer_source("SHA-256", &data_array.buffer())
-            .map_err(|e| TlsError::subtle_crypto(format!("SHA-256 failed: {:?}", e)))?
+        subtle
+            .digest_with_str_and_buffer_source("SHA-256", &data_array.buffer())
+            .map_err(|e| TlsError::subtle_crypto(format!("SHA-256 failed: {:?}", e)))?,
     )
     .await
     .map_err(|e| TlsError::subtle_crypto(format!("SHA-256 failed: {:?}", e)))?;
@@ -813,8 +831,9 @@ pub async fn sha384(data: &[u8]) -> Result<Vec<u8>> {
     let data_array = Uint8Array::from(data);
 
     let hash = JsFuture::from(
-        subtle.digest_with_str_and_buffer_source("SHA-384", &data_array.buffer())
-            .map_err(|e| TlsError::subtle_crypto(format!("SHA-384 failed: {:?}", e)))?
+        subtle
+            .digest_with_str_and_buffer_source("SHA-384", &data_array.buffer())
+            .map_err(|e| TlsError::subtle_crypto(format!("SHA-384 failed: {:?}", e)))?,
     )
     .await
     .map_err(|e| TlsError::subtle_crypto(format!("SHA-384 failed: {:?}", e)))?;
@@ -850,8 +869,14 @@ mod tests {
         let alice = EcdhKeyPair::generate().await.unwrap();
         let bob = EcdhKeyPair::generate().await.unwrap();
 
-        let alice_secret = alice.derive_shared_secret(&bob.public_key_bytes).await.unwrap();
-        let bob_secret = bob.derive_shared_secret(&alice.public_key_bytes).await.unwrap();
+        let alice_secret = alice
+            .derive_shared_secret(&bob.public_key_bytes)
+            .await
+            .unwrap();
+        let bob_secret = bob
+            .derive_shared_secret(&alice.public_key_bytes)
+            .await
+            .unwrap();
 
         assert_eq!(alice_secret, bob_secret);
         assert_eq!(alice_secret.len(), 32);
@@ -861,7 +886,7 @@ mod tests {
     async fn test_aes_gcm_128() {
         let key = vec![0u8; 16];
         let cipher = AesGcm::new_128(&key).await.unwrap();
-        
+
         let nonce = vec![0u8; 12];
         let aad = b"additional data";
         let plaintext = b"Hello, World!";

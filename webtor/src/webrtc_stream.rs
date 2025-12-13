@@ -75,8 +75,9 @@ mod wasm {
 
             // 1. Create RTCPeerConnection with STUN servers
             let config = create_rtc_config()?;
-            let pc = RtcPeerConnection::new_with_configuration(&config)
-                .map_err(|e| TorError::Network(format!("Failed to create RTCPeerConnection: {:?}", e)))?;
+            let pc = RtcPeerConnection::new_with_configuration(&config).map_err(|e| {
+                TorError::Network(format!("Failed to create RTCPeerConnection: {:?}", e))
+            })?;
 
             debug!("RTCPeerConnection created");
 
@@ -130,8 +131,7 @@ mod wasm {
             info!("SDP offer created ({} bytes)", offer_sdp.len());
 
             // 5. Exchange offer/answer via broker
-            let broker = BrokerClient::new(broker_url)
-                .with_fingerprint(fingerprint.to_string());
+            let broker = BrokerClient::new(broker_url).with_fingerprint(fingerprint.to_string());
             let answer_json = broker.negotiate(&offer_sdp).await?;
             info!("Got SDP answer from broker");
 
@@ -140,11 +140,13 @@ mod wasm {
             let answer_sdp = parse_sdp_answer(&answer_json)?;
             let answer_init = RtcSessionDescriptionInit::new(RtcSdpType::Answer);
             answer_init.set_sdp(&answer_sdp);
-            
+
             let set_remote = pc.set_remote_description(&answer_init);
             wasm_bindgen_futures::JsFuture::from(set_remote)
                 .await
-                .map_err(|e| TorError::Network(format!("Failed to set remote description: {:?}", e)))?;
+                .map_err(|e| {
+                    TorError::Network(format!("Failed to set remote description: {:?}", e))
+                })?;
 
             debug!("Remote description set");
 
@@ -178,7 +180,7 @@ mod wasm {
     /// Create RTCConfiguration with STUN servers
     fn create_rtc_config() -> Result<RtcConfiguration> {
         let config = RtcConfiguration::new();
-        
+
         let ice_servers = Array::new();
         for stun_url in STUN_SERVERS {
             let server = Object::new();
@@ -188,7 +190,7 @@ mod wasm {
                 .map_err(|_| TorError::Internal("Failed to set STUN URL".to_string()))?;
             ice_servers.push(&server);
         }
-        
+
         config.set_ice_servers(&ice_servers);
         Ok(config)
     }
@@ -199,9 +201,9 @@ mod wasm {
         let offer = wasm_bindgen_futures::JsFuture::from(pc.create_offer())
             .await
             .map_err(|e| TorError::Network(format!("Failed to create offer: {:?}", e)))?;
-        
+
         let offer_init: RtcSessionDescriptionInit = offer.unchecked_into();
-        
+
         // Set local description
         wasm_bindgen_futures::JsFuture::from(pc.set_local_description(&offer_init))
             .await
@@ -212,23 +214,31 @@ mod wasm {
         if pc.ice_gathering_state() != RtcIceGatheringState::Complete {
             info!("Waiting for ICE gathering to complete...");
             wait_for_ice_gathering(pc).await?;
-            info!("ICE gathering finished, state: {:?}", pc.ice_gathering_state());
+            info!(
+                "ICE gathering finished, state: {:?}",
+                pc.ice_gathering_state()
+            );
         }
 
         // Get the complete SDP with ICE candidates
-        let local_desc = pc.local_description()
-            .ok_or_else(|| TorError::Internal("No local description after gathering".to_string()))?;
-        
+        let local_desc = pc.local_description().ok_or_else(|| {
+            TorError::Internal("No local description after gathering".to_string())
+        })?;
+
         let sdp = local_desc.sdp();
-        
+
         // Log SDP details for debugging
         let ice_candidate_count = sdp.matches("a=candidate:").count();
-        info!("SDP contains {} ICE candidates, {} bytes total", ice_candidate_count, sdp.len());
-        
+        info!(
+            "SDP contains {} ICE candidates, {} bytes total",
+            ice_candidate_count,
+            sdp.len()
+        );
+
         if ice_candidate_count == 0 {
             warn!("SDP has no ICE candidates - this may cause broker matching to fail");
         }
-        
+
         // Serialize as JSON object like Go client does: {"type":"offer","sdp":"..."}
         let offer_json = serde_json::json!({
             "type": "offer",
@@ -236,7 +246,7 @@ mod wasm {
         });
         let serialized = serde_json::to_string(&offer_json)
             .map_err(|e| TorError::Internal(format!("Failed to serialize SDP offer: {}", e)))?;
-        
+
         debug!("Serialized SDP offer: {} bytes", serialized.len());
         Ok(serialized)
     }
@@ -245,11 +255,12 @@ mod wasm {
     fn parse_sdp_answer(json_str: &str) -> Result<String> {
         let parsed: serde_json::Value = serde_json::from_str(json_str)
             .map_err(|e| TorError::Protocol(format!("Failed to parse SDP answer JSON: {}", e)))?;
-        
-        let sdp = parsed.get("sdp")
+
+        let sdp = parsed
+            .get("sdp")
             .and_then(|v| v.as_str())
             .ok_or_else(|| TorError::Protocol("SDP answer missing 'sdp' field".to_string()))?;
-        
+
         Ok(sdp.to_string())
     }
 
@@ -269,7 +280,10 @@ mod wasm {
                     let _ = tx.send(());
                 }
             } else {
-                info!("ICE gathering state changed to: {:?}", pc_clone.ice_gathering_state());
+                info!(
+                    "ICE gathering state changed to: {:?}",
+                    pc_clone.ice_gathering_state()
+                );
             }
         }) as Box<dyn FnMut(web_sys::Event)>);
 

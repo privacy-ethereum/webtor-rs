@@ -21,9 +21,9 @@ use crate::error::Result;
 use crate::kcp_stream::{KcpConfig, KcpStream};
 #[cfg(target_arch = "wasm32")]
 use crate::smux::SmuxStream;
+use crate::snowflake_broker::{BROKER_URL, DEFAULT_BRIDGE_FINGERPRINT};
 #[cfg(target_arch = "wasm32")]
 use crate::turbo::TurboStream;
-use crate::snowflake_broker::{BROKER_URL, DEFAULT_BRIDGE_FINGERPRINT};
 use futures::{AsyncRead, AsyncWrite};
 use std::io;
 use std::pin::Pin;
@@ -35,7 +35,7 @@ use tracing::{info, warn};
 use crate::webrtc_stream::WebRtcStream;
 
 #[cfg(target_arch = "wasm32")]
-use subtle_tls::{TlsConnector, TlsStream, TlsConfig};
+use subtle_tls::{TlsConfig, TlsConnector, TlsStream};
 
 /// Snowflake bridge configuration
 #[derive(Debug, Clone)]
@@ -50,7 +50,6 @@ pub struct SnowflakeConfig {
     pub kcp_conv: Option<u32>,
     /// SMUX stream ID (default: 3)
     pub smux_stream_id: Option<u32>,
-
 }
 
 impl SnowflakeConfig {
@@ -121,9 +120,9 @@ impl SnowflakeBridge {
     #[cfg(target_arch = "wasm32")]
     pub async fn connect(&self) -> Result<SnowflakeStream> {
         use crate::error::TorError;
-        
+
         const MAX_WEBRTC_RETRIES: u32 = 3;
-        
+
         info!("Connecting to Snowflake via WebRTC");
         info!("Broker: {}", self.config.broker_url);
         info!("Fingerprint: {}", self.config.fingerprint);
@@ -131,10 +130,13 @@ impl SnowflakeBridge {
         // 1. Establish WebRTC connection via broker (with retry for unreliable proxies)
         let mut webrtc = None;
         let mut last_error = None;
-        
+
         for attempt in 1..=MAX_WEBRTC_RETRIES {
-            info!("Connecting to volunteer proxy via WebRTC (attempt {}/{})...", attempt, MAX_WEBRTC_RETRIES);
-            
+            info!(
+                "Connecting to volunteer proxy via WebRTC (attempt {}/{})...",
+                attempt, MAX_WEBRTC_RETRIES
+            );
+
             match WebRtcStream::connect(&self.config.broker_url, &self.config.fingerprint).await {
                 Ok(stream) => {
                     info!("WebRTC DataChannel established on attempt {}", attempt);
@@ -145,23 +147,23 @@ impl SnowflakeBridge {
                     let err_str = e.to_string();
                     warn!("WebRTC connection attempt {} failed: {}", attempt, err_str);
                     last_error = Some(e);
-                    
+
                     // Only retry on timeout errors (proxy didn't respond)
                     if !err_str.contains("timeout") {
                         return Err(last_error.unwrap());
                     }
-                    
+
                     if attempt < MAX_WEBRTC_RETRIES {
                         info!("Retrying with a different volunteer proxy...");
                     }
                 }
             }
         }
-        
+
         let webrtc = webrtc.ok_or_else(|| {
-            last_error.unwrap_or_else(|| 
+            last_error.unwrap_or_else(|| {
                 TorError::Network("WebRTC connection failed after all retries".to_string())
-            )
+            })
         })?;
         info!("WebRTC DataChannel established");
 
@@ -186,7 +188,7 @@ impl SnowflakeBridge {
         let mut smux = SmuxStream::with_stream_id(kcp, stream_id);
         smux.initialize().await?;
         info!("SMUX layer initialized");
-        
+
         // 5. Wrap with TLS for Tor link encryption
         // Tor relays use self-signed certificates, so skip verification
         // (authentication happens via CERTS cells in the Tor protocol)
@@ -198,7 +200,8 @@ impl SnowflakeBridge {
         };
         let connector = TlsConnector::with_config(tls_config);
         // Use a placeholder server name since Tor doesn't use SNI
-        let tls_stream = connector.connect(smux, "www.example.com")
+        let tls_stream = connector
+            .connect(smux, "www.example.com")
             .await
             .map_err(|e| crate::error::TorError::tls(format!("TLS handshake failed: {}", e)))?;
         info!("TLS layer established over SMUX");
@@ -214,12 +217,13 @@ impl SnowflakeBridge {
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn connect(&self) -> Result<SnowflakeStream> {
         use crate::error::TorError;
-        
+
         // Native WebRTC requires the webrtc-rs crate which is complex to set up.
         // For native builds, recommend using WebTunnel instead.
         Err(TorError::Internal(
             "Snowflake requires WebRTC which is only available in WASM. \
-             For native builds, use WebTunnel bridge instead.".to_string()
+             For native builds, use WebTunnel bridge instead."
+                .to_string(),
         ))
     }
 }
@@ -272,7 +276,7 @@ impl tor_rtcompat::CertifiedConn for SnowflakeStream {
             SnowflakeInner::Placeholder => unreachable!("Snowflake not available on native"),
         }
     }
-    
+
     fn export_keying_material(
         &self,
         len: usize,
@@ -300,9 +304,10 @@ impl SnowflakeStream {
         info!("Closing Snowflake stream");
         match &mut self.inner {
             #[cfg(target_arch = "wasm32")]
-            SnowflakeInner::WebRtc(tls) => tls.close().await.map_err(|e| {
-                io::Error::new(io::ErrorKind::Other, e.to_string())
-            }),
+            SnowflakeInner::WebRtc(tls) => tls
+                .close()
+                .await
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())),
             #[cfg(not(target_arch = "wasm32"))]
             SnowflakeInner::Placeholder => unreachable!("Snowflake not available on native"),
         }
@@ -359,7 +364,7 @@ impl AsyncWrite for SnowflakeStream {
 
 /// Create a new Snowflake stream using WebRTC (convenience function)
 pub async fn create_snowflake_stream(
-    _broker_url: &str,  // Kept for API compatibility but ignored
+    _broker_url: &str, // Kept for API compatibility but ignored
     _connection_timeout: Duration,
 ) -> Result<SnowflakeStream> {
     // Use default config with WebRTC
@@ -368,7 +373,9 @@ pub async fn create_snowflake_stream(
 }
 
 /// Create a Snowflake stream with full configuration
-pub async fn create_snowflake_stream_with_config(config: SnowflakeConfig) -> Result<SnowflakeStream> {
+pub async fn create_snowflake_stream_with_config(
+    config: SnowflakeConfig,
+) -> Result<SnowflakeStream> {
     let bridge = SnowflakeBridge::with_config(config);
     bridge.connect().await
 }
@@ -387,15 +394,13 @@ mod tests {
 
     #[test]
     fn test_snowflake_config_with_timeout() {
-        let config = SnowflakeConfig::new()
-            .with_timeout(Duration::from_secs(120));
+        let config = SnowflakeConfig::new().with_timeout(Duration::from_secs(120));
         assert_eq!(config.connection_timeout, Duration::from_secs(120));
     }
 
     #[test]
     fn test_snowflake_config_with_fingerprint() {
-        let config = SnowflakeConfig::new()
-            .with_fingerprint("ABCD1234".to_string());
+        let config = SnowflakeConfig::new().with_fingerprint("ABCD1234".to_string());
         assert_eq!(config.fingerprint, "ABCD1234");
     }
 }

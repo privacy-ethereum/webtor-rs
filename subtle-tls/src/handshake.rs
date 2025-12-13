@@ -132,10 +132,7 @@ impl HandshakeState {
         hello.push(0);
 
         // Cipher suites (only SHA-256 based suites for now, SHA-384 not implemented)
-        let cipher_suites = [
-            TLS_AES_128_GCM_SHA256,
-            TLS_CHACHA20_POLY1305_SHA256,
-        ];
+        let cipher_suites = [TLS_AES_128_GCM_SHA256, TLS_CHACHA20_POLY1305_SHA256];
         hello.push(0);
         hello.push((cipher_suites.len() * 2) as u8);
         for cs in cipher_suites {
@@ -248,29 +245,29 @@ impl HandshakeState {
     fn build_sni_extension(&self) -> Vec<u8> {
         let name_bytes = self.server_name.as_bytes();
         let mut ext = Vec::new();
-        
+
         // Server name list length
         let list_len = 3 + name_bytes.len();
         ext.push((list_len >> 8) as u8);
         ext.push(list_len as u8);
-        
+
         // Server name type (host_name = 0)
         ext.push(0);
-        
+
         // Server name length
         ext.push((name_bytes.len() >> 8) as u8);
         ext.push(name_bytes.len() as u8);
-        
+
         // Server name
         ext.extend_from_slice(name_bytes);
-        
+
         ext
     }
 
     fn build_key_share_extension(&self) -> Vec<u8> {
         let p256_key_bytes = &self.ecdh_key.public_key_bytes;
         let mut ext = Vec::new();
-        
+
         // Calculate total length for both key shares
         let p256_entry_len = 4 + p256_key_bytes.len(); // group(2) + len(2) + key
         let x25519_entry_len = if let Some(ref x25519_key) = self.x25519_key {
@@ -279,11 +276,11 @@ impl HandshakeState {
             0
         };
         let total_len = p256_entry_len + x25519_entry_len;
-        
+
         // Client key shares length
         ext.push((total_len >> 8) as u8);
         ext.push(total_len as u8);
-        
+
         // X25519 key share (first, as preferred)
         if let Some(ref x25519_key) = self.x25519_key {
             let key_bytes = &x25519_key.public_key_bytes;
@@ -293,14 +290,14 @@ impl HandshakeState {
             ext.push(key_bytes.len() as u8);
             ext.extend_from_slice(key_bytes);
         }
-        
+
         // P-256 key share
         ext.push((GROUP_SECP256R1 >> 8) as u8);
         ext.push(GROUP_SECP256R1 as u8);
         ext.push((p256_key_bytes.len() >> 8) as u8);
         ext.push(p256_key_bytes.len() as u8);
         ext.extend_from_slice(p256_key_bytes);
-        
+
         ext
     }
 
@@ -310,16 +307,16 @@ impl HandshakeState {
             SIG_RSA_PSS_RSAE_SHA256,
             SIG_RSA_PKCS1_SHA256,
         ];
-        
+
         let mut ext = Vec::new();
         ext.push(0);
         ext.push((algorithms.len() * 2) as u8);
-        
+
         for alg in algorithms {
             ext.push((alg >> 8) as u8);
             ext.push(alg as u8);
         }
-        
+
         ext
     }
 
@@ -393,7 +390,7 @@ impl HandshakeState {
                     if ext_data.len() >= 4 {
                         let group = ((ext_data[0] as u16) << 8) | (ext_data[1] as u16);
                         let key_len = ((ext_data[2] as usize) << 8) | (ext_data[3] as usize);
-                        
+
                         // We support both P-256 and X25519
                         if group != GROUP_SECP256R1 && group != GROUP_X25519 {
                             return Err(TlsError::handshake(format!(
@@ -401,10 +398,10 @@ impl HandshakeState {
                                 group
                             )));
                         }
-                        
+
                         self.selected_group = group;
                         debug!("Server selected key exchange group: 0x{:04x}", group);
-                        
+
                         if ext_data.len() >= 4 + key_len {
                             server_key_share = Some(ext_data[4..4 + key_len].to_vec());
                         }
@@ -421,8 +418,11 @@ impl HandshakeState {
 
     /// Derive handshake keys after receiving ServerHello
     pub async fn derive_handshake_keys(&mut self, server_key_share: &[u8]) -> Result<()> {
-        tracing::info!("derive_handshake_keys: selected_group=0x{:04x}, key_share_len={}", 
-                       self.selected_group, server_key_share.len());
+        tracing::info!(
+            "derive_handshake_keys: selected_group=0x{:04x}, key_share_len={}",
+            self.selected_group,
+            server_key_share.len()
+        );
         // Compute shared secret based on selected key exchange group
         let shared_secret = match self.selected_group {
             GROUP_SECP256R1 => {
@@ -433,7 +433,9 @@ impl HandshakeState {
             GROUP_X25519 => {
                 // X25519 via pure Rust
                 tracing::info!("Using X25519 ECDH");
-                let x25519_key = self.x25519_key.take()
+                let x25519_key = self
+                    .x25519_key
+                    .take()
                     .ok_or_else(|| TlsError::handshake("X25519 key not available"))?;
                 x25519_key.derive_shared_secret(server_key_share)?
             }
@@ -444,11 +446,17 @@ impl HandshakeState {
                 )));
             }
         };
-        tracing::info!("Derived shared secret ({} bytes) using group 0x{:04x}", 
-               shared_secret.len(), self.selected_group);
+        tracing::info!(
+            "Derived shared secret ({} bytes) using group 0x{:04x}",
+            shared_secret.len(),
+            self.selected_group
+        );
 
         // Compute transcript hash up to this point
-        tracing::info!("Computing transcript hash ({} bytes of transcript)", self.transcript.len());
+        tracing::info!(
+            "Computing transcript hash ({} bytes of transcript)",
+            self.transcript.len()
+        );
         let transcript_hash = crypto::sha256(&self.transcript).await?;
         tracing::info!("Transcript hash computed: {} bytes", transcript_hash.len());
 
@@ -486,7 +494,9 @@ impl HandshakeState {
 
     /// Derive application keys after receiving server Finished
     pub async fn derive_application_keys(&mut self) -> Result<()> {
-        let handshake_secret = self.handshake_secret.as_ref()
+        let handshake_secret = self
+            .handshake_secret
+            .as_ref()
             .ok_or_else(|| TlsError::handshake("Missing handshake secret"))?;
 
         // Transcript hash up to server Finished
@@ -527,7 +537,7 @@ impl HandshakeState {
 
         // verify_data = HMAC(finished_key, Transcript-Hash)
         let transcript_hash = crypto::sha256(&self.transcript).await?;
-        
+
         // Compute HMAC using the crypto module
         let verify_data = hmac_sha256(&finished_key, &transcript_hash).await?;
 
@@ -537,25 +547,25 @@ impl HandshakeState {
     /// Build client Finished message
     pub async fn build_client_finished(&self) -> Result<Vec<u8>> {
         let verify_data = self.compute_finished(true).await?;
-        
+
         let mut message = vec![HANDSHAKE_FINISHED];
         let len = verify_data.len();
         message.push((len >> 16) as u8);
         message.push((len >> 8) as u8);
         message.push(len as u8);
         message.extend_from_slice(&verify_data);
-        
+
         Ok(message)
     }
 
     /// Verify server Finished message
     pub async fn verify_server_finished(&self, received_verify_data: &[u8]) -> Result<()> {
         let expected = self.compute_finished(false).await?;
-        
+
         if received_verify_data != expected {
             return Err(TlsError::handshake("Server Finished verification failed"));
         }
-        
+
         debug!("Server Finished verified successfully");
         Ok(())
     }
@@ -615,9 +625,9 @@ async fn hmac_sha256(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     use wasm_bindgen_futures::JsFuture;
     use web_sys::CryptoKey;
 
-    let window = web_sys::window()
-        .ok_or_else(|| TlsError::subtle_crypto("No window"))?;
-    let subtle = window.crypto()
+    let window = web_sys::window().ok_or_else(|| TlsError::subtle_crypto("No window"))?;
+    let subtle = window
+        .crypto()
         .map_err(|_| TlsError::subtle_crypto("No crypto"))?
         .subtle();
 
@@ -635,17 +645,23 @@ async fn hmac_sha256(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     key_usages.push(&"sign".into());
 
     let crypto_key = JsFuture::from(
-        subtle.import_key_with_object("raw", &key_data.buffer(), &algorithm, false, &key_usages)
-            .map_err(|_| TlsError::subtle_crypto("HMAC key import failed"))?
-    ).await.map_err(|_| TlsError::subtle_crypto("HMAC key import failed"))?;
+        subtle
+            .import_key_with_object("raw", &key_data.buffer(), &algorithm, false, &key_usages)
+            .map_err(|_| TlsError::subtle_crypto("HMAC key import failed"))?,
+    )
+    .await
+    .map_err(|_| TlsError::subtle_crypto("HMAC key import failed"))?;
 
     let crypto_key: CryptoKey = crypto_key.unchecked_into();
     let data_array = Uint8Array::from(data);
-    
+
     let signature = JsFuture::from(
-        subtle.sign_with_str_and_buffer_source("HMAC", &crypto_key, &data_array.buffer())
-            .map_err(|_| TlsError::subtle_crypto("HMAC sign failed"))?
-    ).await.map_err(|_| TlsError::subtle_crypto("HMAC failed"))?;
+        subtle
+            .sign_with_str_and_buffer_source("HMAC", &crypto_key, &data_array.buffer())
+            .map_err(|_| TlsError::subtle_crypto("HMAC sign failed"))?,
+    )
+    .await
+    .map_err(|_| TlsError::subtle_crypto("HMAC failed"))?;
 
     let array_buffer: ArrayBuffer = signature.unchecked_into();
     let uint8_array = Uint8Array::new(&array_buffer);
@@ -675,7 +691,7 @@ pub fn parse_certificate(data: &[u8]) -> Result<Vec<Vec<u8>>> {
     // Certificate request context (should be empty for server cert)
     let context_len = data[pos] as usize;
     pos += 1;
-    
+
     if pos + context_len > data.len() {
         return Err(TlsError::handshake("Certificate context overflow"));
     }
@@ -686,7 +702,8 @@ pub fn parse_certificate(data: &[u8]) -> Result<Vec<Vec<u8>>> {
     }
 
     // Certificate list length
-    let list_len = ((data[pos] as usize) << 16) | ((data[pos + 1] as usize) << 8) | (data[pos + 2] as usize);
+    let list_len =
+        ((data[pos] as usize) << 16) | ((data[pos + 1] as usize) << 8) | (data[pos + 2] as usize);
     pos += 3;
 
     let list_end = pos.saturating_add(list_len).min(data.len());
@@ -694,7 +711,9 @@ pub fn parse_certificate(data: &[u8]) -> Result<Vec<Vec<u8>>> {
 
     while pos + 3 <= list_end && pos + 3 <= data.len() {
         // Certificate length
-        let cert_len = ((data[pos] as usize) << 16) | ((data[pos + 1] as usize) << 8) | (data[pos + 2] as usize);
+        let cert_len = ((data[pos] as usize) << 16)
+            | ((data[pos + 1] as usize) << 8)
+            | (data[pos + 2] as usize);
         pos += 3;
 
         if pos + cert_len > list_end || pos + cert_len > data.len() {

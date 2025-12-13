@@ -7,8 +7,8 @@ use crate::error::{Result, TlsError};
 use crate::handshake_1_2::{
     self, Handshake12State, CONTENT_TYPE_ALERT, CONTENT_TYPE_APPLICATION_DATA,
     CONTENT_TYPE_CHANGE_CIPHER_SPEC, CONTENT_TYPE_HANDSHAKE, HANDSHAKE_CERTIFICATE,
-    HANDSHAKE_SERVER_HELLO, HANDSHAKE_SERVER_HELLO_DONE, HANDSHAKE_SERVER_KEY_EXCHANGE,
-    HANDSHAKE_FINISHED, TLS_VERSION_1_2,
+    HANDSHAKE_FINISHED, HANDSHAKE_SERVER_HELLO, HANDSHAKE_SERVER_HELLO_DONE,
+    HANDSHAKE_SERVER_KEY_EXCHANGE, TLS_VERSION_1_2,
 };
 use crate::record_1_2::RecordLayer12;
 use crate::TlsConfig;
@@ -50,11 +50,8 @@ where
         debug!("Sent TLS 1.2 ClientHello");
 
         // Step 2: Receive ServerHello, Certificate, ServerKeyExchange, ServerHelloDone
-        let peer_certificate = Self::process_server_messages(
-            &mut stream,
-            &mut handshake,
-            &config,
-        ).await?;
+        let peer_certificate =
+            Self::process_server_messages(&mut stream, &mut handshake, &config).await?;
 
         // Step 3: Generate ECDH key pair and compute shared secret
         handshake.compute_key_exchange().await?;
@@ -76,48 +73,53 @@ where
         debug!("Sent ChangeCipherSpec");
 
         // Extract key material (clone to avoid borrow issues)
-        let km = handshake.key_material.clone()
+        let km = handshake
+            .key_material
+            .clone()
             .ok_or_else(|| TlsError::handshake("No key material"))?;
 
         // Activate write cipher
-        record_layer.set_write_cipher(
-            &km.client_write_key,
-            &km.client_write_iv,
-            &km.client_write_mac_key,
-        ).await?;
+        record_layer
+            .set_write_cipher(
+                &km.client_write_key,
+                &km.client_write_iv,
+                &km.client_write_mac_key,
+            )
+            .await?;
 
         // Step 7: Send Finished (encrypted)
         let finished = handshake.build_finished().await?;
         handshake.update_transcript(&finished);
-        record_layer.write_record(&mut stream, CONTENT_TYPE_HANDSHAKE, &finished).await?;
+        record_layer
+            .write_record(&mut stream, CONTENT_TYPE_HANDSHAKE, &finished)
+            .await?;
         debug!("Sent TLS 1.2 Finished");
 
         // Step 8: Receive ChangeCipherSpec
-        loop {
-            let (content_type, data) = Self::read_record_unencrypted(&mut stream).await?;
-            match content_type {
-                CONTENT_TYPE_CHANGE_CIPHER_SPEC => {
-                    debug!("Received ChangeCipherSpec");
-                    break;
-                }
-                CONTENT_TYPE_ALERT => {
-                    return Err(Self::parse_alert(&data));
-                }
-                _ => {
-                    return Err(TlsError::UnexpectedMessage {
-                        expected: "ChangeCipherSpec".to_string(),
-                        got: format!("ContentType {}", content_type),
-                    });
-                }
+        let (content_type, data) = Self::read_record_unencrypted(&mut stream).await?;
+        match content_type {
+            CONTENT_TYPE_CHANGE_CIPHER_SPEC => {
+                debug!("Received ChangeCipherSpec");
+            }
+            CONTENT_TYPE_ALERT => {
+                return Err(Self::parse_alert(&data));
+            }
+            _ => {
+                return Err(TlsError::UnexpectedMessage {
+                    expected: "ChangeCipherSpec".to_string(),
+                    got: format!("ContentType {}", content_type),
+                });
             }
         }
 
         // Activate read cipher
-        record_layer.set_read_cipher(
-            &km.server_write_key,
-            &km.server_write_iv,
-            &km.server_write_mac_key,
-        ).await?;
+        record_layer
+            .set_read_cipher(
+                &km.server_write_key,
+                &km.server_write_iv,
+                &km.server_write_mac_key,
+            )
+            .await?;
 
         // Step 9: Receive Finished (encrypted)
         let (content_type, data) = record_layer.read_record(&mut stream).await?;
@@ -135,7 +137,10 @@ where
         let msg_type = data[0];
         let length = ((data[1] as usize) << 16) | ((data[2] as usize) << 8) | (data[3] as usize);
         if msg_type != HANDSHAKE_FINISHED {
-            return Err(TlsError::handshake(format!("Expected Finished, got type {}", msg_type)));
+            return Err(TlsError::handshake(format!(
+                "Expected Finished, got type {}",
+                msg_type
+            )));
         }
         let verify_data = &data[4..4 + length];
 
@@ -178,7 +183,7 @@ where
                         let length = ((data[pos + 1] as usize) << 16)
                             | ((data[pos + 2] as usize) << 8)
                             | (data[pos + 3] as usize);
-                        
+
                         let msg_end = pos + 4 + length;
                         if msg_end > data.len() {
                             return Err(TlsError::handshake("Handshake message truncated"));
@@ -248,15 +253,13 @@ where
     /// Read a TLS record (unencrypted, for handshake)
     async fn read_record_unencrypted(stream: &mut S) -> Result<(u8, Vec<u8>)> {
         let mut header = [0u8; 5];
-        stream.read_exact(&mut header).await
-            .map_err(TlsError::Io)?;
+        stream.read_exact(&mut header).await.map_err(TlsError::Io)?;
 
         let content_type = header[0];
         let length = ((header[3] as usize) << 8) | (header[4] as usize);
 
         let mut body = vec![0u8; length];
-        stream.read_exact(&mut body).await
-            .map_err(TlsError::Io)?;
+        stream.read_exact(&mut body).await.map_err(TlsError::Io)?;
 
         Ok((content_type, body))
     }
@@ -271,10 +274,8 @@ where
         record.push(data.len() as u8);
         record.extend_from_slice(data);
 
-        stream.write_all(&record).await
-            .map_err(TlsError::Io)?;
-        stream.flush().await
-            .map_err(TlsError::Io)?;
+        stream.write_all(&record).await.map_err(TlsError::Io)?;
+        stream.flush().await.map_err(TlsError::Io)?;
 
         Ok(())
     }
@@ -369,11 +370,7 @@ where
 }
 
 // Implement tor_rtcompat traits
-impl<S> tor_rtcompat::StreamOps for TlsStream12<S>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-}
+impl<S> tor_rtcompat::StreamOps for TlsStream12<S> where S: AsyncRead + AsyncWrite + Unpin {}
 
 impl<S> tor_rtcompat::CertifiedConn for TlsStream12<S>
 where

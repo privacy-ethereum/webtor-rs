@@ -2,9 +2,9 @@
 
 use crate::isolation::StreamIsolationPolicy;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
-use std::sync::Arc;
 use std::fmt;
+use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Clone)]
 pub struct LogCallback(pub Arc<dyn Fn(&str, LogType) + Send + Sync>);
@@ -59,31 +59,31 @@ impl Default for BridgeType {
 pub struct TorClientOptions {
     /// Bridge configuration
     pub bridge: BridgeType,
-    
+
     /// The Snowflake bridge WebSocket URL for Tor connections (deprecated, use bridge)
     #[serde(default)]
     pub snowflake_url: String,
-    
+
     /// Timeout in milliseconds for establishing initial connections
     #[serde(default = "default_connection_timeout")]
     pub connection_timeout: u64,
-    
+
     /// Timeout in milliseconds for circuit creation and readiness
     #[serde(default = "default_circuit_timeout")]
     pub circuit_timeout: u64,
-    
+
     /// Whether to create the first circuit immediately upon construction
     #[serde(default = "default_create_circuit_early")]
     pub create_circuit_early: bool,
-    
+
     /// Interval in milliseconds between automatic circuit updates, or null to disable
     #[serde(default = "default_circuit_update_interval")]
     pub circuit_update_interval: Option<u64>,
-    
+
     /// Time in milliseconds to allow old circuit usage before forcing new circuit during updates
     #[serde(default = "default_circuit_update_advance")]
     pub circuit_update_advance: u64,
-    
+
     /// Optional bridge fingerprint (hex string) to verify the bridge identity
     pub bridge_fingerprint: Option<String>,
 
@@ -163,7 +163,7 @@ impl TorClientOptions {
     /// Create options for Snowflake bridge using default Tor Project broker
     pub fn snowflake() -> Self {
         Self {
-            bridge: BridgeType::Snowflake { 
+            bridge: BridgeType::Snowflake {
                 url: SNOWFLAKE_URL_PRIMARY.to_string(),
             },
             bridge_fingerprint: Some(SNOWFLAKE_FINGERPRINT_PRIMARY.to_string()),
@@ -179,7 +179,7 @@ impl TorClientOptions {
         } else {
             SNOWFLAKE_FINGERPRINT_PRIMARY
         };
-        
+
         Self {
             bridge: BridgeType::Snowflake { url: url.clone() },
             snowflake_url: url,
@@ -196,7 +196,7 @@ impl TorClientOptions {
     /// Create options for Snowflake bridge via WebRTC (more censorship resistant)
     pub fn snowflake_webrtc() -> Self {
         Self {
-            bridge: BridgeType::SnowflakeWebRtc { 
+            bridge: BridgeType::SnowflakeWebRtc {
                 broker_url: "https://snowflake-broker.torproject.net/".to_string(),
             },
             bridge_fingerprint: Some(SNOWFLAKE_FINGERPRINT_PRIMARY.to_string()),
@@ -207,8 +207,8 @@ impl TorClientOptions {
     /// Create options for a WebTunnel bridge
     pub fn webtunnel(url: String, fingerprint: String) -> Self {
         Self {
-            bridge: BridgeType::WebTunnel { 
-                url, 
+            bridge: BridgeType::WebTunnel {
+                url,
                 server_name: None,
             },
             bridge_fingerprint: Some(fingerprint),
@@ -219,35 +219,35 @@ impl TorClientOptions {
     /// Create options for a WebTunnel bridge with custom server name
     pub fn webtunnel_with_sni(url: String, fingerprint: String, server_name: String) -> Self {
         Self {
-            bridge: BridgeType::WebTunnel { 
-                url, 
+            bridge: BridgeType::WebTunnel {
+                url,
                 server_name: Some(server_name),
             },
             bridge_fingerprint: Some(fingerprint),
             ..Default::default()
         }
     }
-    
+
     pub fn with_connection_timeout(mut self, timeout: u64) -> Self {
         self.connection_timeout = timeout;
         self
     }
-    
+
     pub fn with_circuit_timeout(mut self, timeout: u64) -> Self {
         self.circuit_timeout = timeout;
         self
     }
-    
+
     pub fn with_create_circuit_early(mut self, create_early: bool) -> Self {
         self.create_circuit_early = create_early;
         self
     }
-    
+
     pub fn with_circuit_update_interval(mut self, interval: Option<u64>) -> Self {
         self.circuit_update_interval = interval;
         self
     }
-    
+
     pub fn with_circuit_update_advance(mut self, advance: u64) -> Self {
         self.circuit_update_advance = advance;
         self
@@ -262,27 +262,27 @@ impl TorClientOptions {
         self.stream_isolation = policy;
         self
     }
-    
-    pub fn with_on_log<F>(mut self, on_log: F) -> Self 
+
+    pub fn with_on_log<F>(mut self, on_log: F) -> Self
     where
         F: Fn(&str, LogType) + Send + Sync + 'static,
     {
         self.on_log = Some(LogCallback(Arc::new(on_log)));
         self
     }
-    
+
     pub fn connection_timeout_duration(&self) -> Duration {
         Duration::from_millis(self.connection_timeout)
     }
-    
+
     pub fn circuit_timeout_duration(&self) -> Duration {
         Duration::from_millis(self.circuit_timeout)
     }
-    
+
     pub fn circuit_update_interval_duration(&self) -> Option<Duration> {
         self.circuit_update_interval.map(Duration::from_millis)
     }
-    
+
     pub fn circuit_update_advance_duration(&self) -> Duration {
         Duration::from_millis(self.circuit_update_advance)
     }

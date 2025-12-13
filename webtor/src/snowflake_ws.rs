@@ -32,7 +32,7 @@ use crate::smux::SmuxStream;
 #[cfg(target_arch = "wasm32")]
 use crate::turbo::TurboStream;
 #[cfg(target_arch = "wasm32")]
-use subtle_tls::{TlsConnector, TlsStream, TlsConfig};
+use subtle_tls::{TlsConfig, TlsConnector, TlsStream};
 
 /// WebSocket Snowflake endpoints
 pub const SNOWFLAKE_WS_URL: &str = "wss://snowflake.torproject.net/";
@@ -149,7 +149,8 @@ impl SnowflakeWsStream {
         info!("Snowflake: calling TLS connect...");
         let tls_result = connector.connect(smux, "www.example.com").await;
         info!("Snowflake: TLS connect returned");
-        let tls_stream = tls_result.map_err(|e| TorError::tls(format!("TLS handshake failed: {}", e)))?;
+        let tls_stream =
+            tls_result.map_err(|e| TorError::tls(format!("TLS handshake failed: {}", e)))?;
         info!("TLS layer established");
 
         info!("Snowflake WS connection established: WebSocket → Turbo → KCP → SMUX → TLS");
@@ -162,7 +163,7 @@ impl SnowflakeWsStream {
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn connect(_config: SnowflakeWsConfig) -> Result<Self> {
         Err(TorError::Internal(
-            "WebSocket Snowflake is only available in WASM".to_string()
+            "WebSocket Snowflake is only available in WASM".to_string(),
         ))
     }
 }

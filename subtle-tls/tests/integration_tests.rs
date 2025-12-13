@@ -51,7 +51,7 @@ mod crypto_tests {
     async fn test_x25519_rejects_invalid_key_length() {
         let alice = X25519KeyPair::generate().unwrap();
         let invalid_key = vec![0u8; 31]; // Wrong length
-        
+
         let result = alice.derive_shared_secret(&invalid_key);
         assert!(result.is_err());
     }
@@ -69,8 +69,14 @@ mod crypto_tests {
         let alice = EcdhKeyPair::generate().await.unwrap();
         let bob = EcdhKeyPair::generate().await.unwrap();
 
-        let alice_secret = alice.derive_shared_secret(&bob.public_key_bytes).await.unwrap();
-        let bob_secret = bob.derive_shared_secret(&alice.public_key_bytes).await.unwrap();
+        let alice_secret = alice
+            .derive_shared_secret(&bob.public_key_bytes)
+            .await
+            .unwrap();
+        let bob_secret = bob
+            .derive_shared_secret(&alice.public_key_bytes)
+            .await
+            .unwrap();
 
         assert_eq!(alice_secret.len(), 32);
         assert_eq!(alice_secret, bob_secret);
@@ -127,7 +133,7 @@ mod crypto_tests {
         let plaintext = b"plaintext";
 
         let mut ciphertext = cipher.encrypt(&nonce, aad, plaintext).await.unwrap();
-        
+
         // Tamper with the ciphertext
         ciphertext[0] ^= 0xFF;
 
@@ -145,7 +151,7 @@ mod crypto_tests {
         let plaintext = b"plaintext";
 
         let ciphertext = cipher.encrypt(&nonce, aad, plaintext).await.unwrap();
-        
+
         let wrong_aad = b"wrong aad";
         let result = cipher.decrypt(&nonce, wrong_aad, &ciphertext).await;
         assert!(result.is_err());
@@ -208,13 +214,12 @@ mod crypto_tests {
     async fn test_sha256() {
         let hash = crypto::sha256(b"hello").await.unwrap();
         assert_eq!(hash.len(), 32);
-        
+
         // Known SHA-256 hash of "hello"
         let expected = [
-            0x2c, 0xf2, 0x4d, 0xba, 0x5f, 0xb0, 0xa3, 0x0e,
-            0x26, 0xe8, 0x3b, 0x2a, 0xc5, 0xb9, 0xe2, 0x9e,
-            0x1b, 0x16, 0x1e, 0x5c, 0x1f, 0xa7, 0x42, 0x5e,
-            0x73, 0x04, 0x33, 0x62, 0x93, 0x8b, 0x98, 0x24,
+            0x2c, 0xf2, 0x4d, 0xba, 0x5f, 0xb0, 0xa3, 0x0e, 0x26, 0xe8, 0x3b, 0x2a, 0xc5, 0xb9,
+            0xe2, 0x9e, 0x1b, 0x16, 0x1e, 0x5c, 0x1f, 0xa7, 0x42, 0x5e, 0x73, 0x04, 0x33, 0x62,
+            0x93, 0x8b, 0x98, 0x24,
         ];
         assert_eq!(hash, expected);
     }
@@ -230,10 +235,9 @@ mod crypto_tests {
         let hash = crypto::sha256(b"").await.unwrap();
         // Known SHA-256 hash of empty string
         let expected = [
-            0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14,
-            0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f, 0xb9, 0x24,
-            0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c,
-            0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55,
+            0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14, 0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f,
+            0xb9, 0x24, 0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c, 0xa4, 0x95, 0x99, 0x1b,
+            0x78, 0x52, 0xb8, 0x55,
         ];
         assert_eq!(hash, expected);
     }
@@ -269,7 +273,9 @@ mod crypto_tests {
         let label = "test";
         let context = b"context";
 
-        let output = Hkdf::expand_label(&secret, label, context, 32).await.unwrap();
+        let output = Hkdf::expand_label(&secret, label, context, 32)
+            .await
+            .unwrap();
         assert_eq!(output.len(), 32);
 
         // Test key and IV derivation labels used in TLS 1.3
@@ -286,7 +292,9 @@ mod crypto_tests {
         let label = "derived";
         let messages_hash = crypto::sha256(b"test").await.unwrap();
 
-        let derived = Hkdf::derive_secret(&secret, label, &messages_hash).await.unwrap();
+        let derived = Hkdf::derive_secret(&secret, label, &messages_hash)
+            .await
+            .unwrap();
         assert_eq!(derived.len(), 32);
     }
 
@@ -313,16 +321,15 @@ mod crypto_tests {
 mod handshake_tests {
     use super::*;
     use subtle_tls::handshake::{
-        parse_certificate_verify, parse_finished, parse_handshake_header,
-        HandshakeState, HANDSHAKE_CLIENT_HELLO,
-        TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256,
-        TLS_VERSION_1_2,
+        parse_certificate_verify, parse_finished, parse_handshake_header, HandshakeState,
+        HANDSHAKE_CLIENT_HELLO, TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384,
+        TLS_CHACHA20_POLY1305_SHA256, TLS_VERSION_1_2,
     };
 
     #[wasm_bindgen_test]
     async fn test_handshake_state_creation() {
         let state = HandshakeState::new("example.com").await.unwrap();
-        
+
         assert_eq!(state.server_name, "example.com");
         assert_eq!(state.client_random.len(), 32);
         assert_eq!(state.cipher_suite, TLS_AES_128_GCM_SHA256);
@@ -337,7 +344,7 @@ mod handshake_tests {
 
         // Verify handshake header
         assert_eq!(client_hello[0], HANDSHAKE_CLIENT_HELLO);
-        
+
         // Verify length field
         let length = ((client_hello[1] as usize) << 16)
             | ((client_hello[2] as usize) << 8)
@@ -386,7 +393,7 @@ mod handshake_tests {
 
         // The SNI should be in the extensions, containing the server name
         let sni_bytes = server_name.as_bytes();
-        
+
         // Find the SNI in the message
         let mut found_sni = false;
         for i in 0..client_hello.len() - sni_bytes.len() {
@@ -402,7 +409,7 @@ mod handshake_tests {
     async fn test_parse_handshake_header() {
         let data = [HANDSHAKE_CLIENT_HELLO, 0x00, 0x01, 0x00];
         let (msg_type, length) = parse_handshake_header(&data).unwrap();
-        
+
         assert_eq!(msg_type, HANDSHAKE_CLIENT_HELLO);
         assert_eq!(length, 256);
     }
@@ -453,12 +460,12 @@ mod handshake_tests {
 
 mod record_tests {
     use super::*;
-    use subtle_tls::record::RecordLayer;
-    use subtle_tls::handshake::{
-        TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256,
-        CONTENT_TYPE_APPLICATION_DATA, CONTENT_TYPE_HANDSHAKE,
-    };
     use futures::io::Cursor;
+    use subtle_tls::handshake::{
+        CONTENT_TYPE_APPLICATION_DATA, CONTENT_TYPE_HANDSHAKE, TLS_AES_128_GCM_SHA256,
+        TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256,
+    };
+    use subtle_tls::record::RecordLayer;
 
     #[wasm_bindgen_test]
     async fn test_record_layer_creation() {
@@ -479,29 +486,34 @@ mod record_tests {
         let mut output = Vec::new();
         let data = b"Hello, World!";
 
-        layer.write_record(&mut output, CONTENT_TYPE_HANDSHAKE, data).await.unwrap();
+        layer
+            .write_record(&mut output, CONTENT_TYPE_HANDSHAKE, data)
+            .await
+            .unwrap();
 
         // Verify record header
         assert_eq!(output[0], CONTENT_TYPE_HANDSHAKE);
         assert_eq!(output[1], 0x03); // TLS 1.2 major
         assert_eq!(output[2], 0x03); // TLS 1.2 minor
-        
+
         let length = ((output[3] as usize) << 8) | (output[4] as usize);
         assert_eq!(length, data.len());
-        
+
         assert_eq!(&output[5..], data);
     }
 
     #[wasm_bindgen_test]
     async fn test_read_unencrypted_record() {
         let mut layer = RecordLayer::new();
-        
+
         // Build a record manually
         let data = b"Test data";
         let mut record = vec![
             CONTENT_TYPE_HANDSHAKE,
-            0x03, 0x03, // TLS 1.2
-            0x00, data.len() as u8,
+            0x03,
+            0x03, // TLS 1.2
+            0x00,
+            data.len() as u8,
         ];
         record.extend_from_slice(data);
 
@@ -527,7 +539,10 @@ mod record_tests {
         let mut output = Vec::new();
 
         // Write encrypted record
-        layer.write_record(&mut output, CONTENT_TYPE_APPLICATION_DATA, plaintext).await.unwrap();
+        layer
+            .write_record(&mut output, CONTENT_TYPE_APPLICATION_DATA, plaintext)
+            .await
+            .unwrap();
 
         // The output should be an encrypted record (larger than plaintext due to tag and content type byte)
         assert!(output.len() > plaintext.len() + 5);
@@ -554,7 +569,10 @@ mod record_tests {
         let plaintext = b"AES-256-GCM encrypted data";
         let mut output = Vec::new();
 
-        layer.write_record(&mut output, CONTENT_TYPE_APPLICATION_DATA, plaintext).await.unwrap();
+        layer
+            .write_record(&mut output, CONTENT_TYPE_APPLICATION_DATA, plaintext)
+            .await
+            .unwrap();
 
         let mut cursor = Cursor::new(output);
         let (content_type, decrypted) = layer.read_record(&mut cursor).await.unwrap();
@@ -577,7 +595,10 @@ mod record_tests {
         let plaintext = b"ChaCha20-Poly1305 encrypted data";
         let mut output = Vec::new();
 
-        layer.write_record(&mut output, CONTENT_TYPE_APPLICATION_DATA, plaintext).await.unwrap();
+        layer
+            .write_record(&mut output, CONTENT_TYPE_APPLICATION_DATA, plaintext)
+            .await
+            .unwrap();
 
         let mut cursor = Cursor::new(output);
         let (content_type, decrypted) = layer.read_record(&mut cursor).await.unwrap();
@@ -602,7 +623,10 @@ mod record_tests {
         for i in 0..3 {
             let mut output = Vec::new();
             let data = format!("Message {}", i);
-            layer.write_record(&mut output, CONTENT_TYPE_APPLICATION_DATA, data.as_bytes()).await.unwrap();
+            layer
+                .write_record(&mut output, CONTENT_TYPE_APPLICATION_DATA, data.as_bytes())
+                .await
+                .unwrap();
             outputs.push(output);
         }
 
@@ -615,7 +639,10 @@ mod record_tests {
             let mut cursor = Cursor::new(output);
             let (content_type, decrypted) = layer.read_record(&mut cursor).await.unwrap();
             assert_eq!(content_type, CONTENT_TYPE_APPLICATION_DATA);
-            assert_eq!(String::from_utf8(decrypted).unwrap(), format!("Message {}", i));
+            assert_eq!(
+                String::from_utf8(decrypted).unwrap(),
+                format!("Message {}", i)
+            );
         }
     }
 }
@@ -641,10 +668,10 @@ mod trust_store_tests {
     async fn test_isrg_roots_present() {
         let store = TrustStore::new().unwrap();
         let roots = store.get_roots();
-        
+
         let has_isrg_x1 = roots.iter().any(|r| r.subject.contains("ISRG Root X1"));
         let has_isrg_x2 = roots.iter().any(|r| r.subject.contains("ISRG Root X2"));
-        
+
         assert!(has_isrg_x1, "ISRG Root X1 should be in trust store");
         assert!(has_isrg_x2, "ISRG Root X2 should be in trust store");
     }
@@ -653,7 +680,7 @@ mod trust_store_tests {
     async fn test_digicert_root_present() {
         let store = TrustStore::new().unwrap();
         let roots = store.get_roots();
-        
+
         let has_digicert = roots.iter().any(|r| r.subject.contains("DigiCert"));
         assert!(has_digicert, "DigiCert root should be in trust store");
     }
@@ -666,9 +693,13 @@ mod trust_store_tests {
 
     #[wasm_bindgen_test]
     async fn test_custom_ca_bundle_url() {
-        let store = TrustStore::new().unwrap()
+        let store = TrustStore::new()
+            .unwrap()
             .with_ca_bundle_url("https://custom.example.com/certs.pem");
-        assert_eq!(store.ca_bundle_url(), "https://custom.example.com/certs.pem");
+        assert_eq!(
+            store.ca_bundle_url(),
+            "https://custom.example.com/certs.pem"
+        );
     }
 }
 
@@ -760,7 +791,7 @@ mod tls_config_tests {
     async fn test_connector_creation() {
         let _connector = TlsConnector::new();
         let _connector = TlsConnector::default();
-        
+
         let config = TlsConfig::default();
         let _connector = TlsConnector::with_config(config);
     }
@@ -780,23 +811,23 @@ mod tls_config_tests {
 #[cfg(feature = "tls12")]
 mod tls12_tests {
     use super::*;
-    use subtle_tls::prf::{self, KeyMaterial};
     use subtle_tls::crypto::AesCbc;
     use subtle_tls::handshake_1_2::{
-        CipherSuiteParams, Handshake12State,
-        TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-        TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+        CipherSuiteParams, Handshake12State, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+        TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+        TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
     };
+    use subtle_tls::prf::{self, KeyMaterial};
 
     #[wasm_bindgen_test]
     async fn test_prf_basic() {
         let secret = vec![0x42u8; 32];
         let label = b"test label";
         let seed = vec![0x01u8; 32];
-        
+
         let result = prf::prf(&secret, label, &seed, 48).await.unwrap();
         assert_eq!(result.len(), 48);
-        
+
         // Same inputs should produce same outputs
         let result2 = prf::prf(&secret, label, &seed, 48).await.unwrap();
         assert_eq!(result, result2);
@@ -807,15 +838,15 @@ mod tls12_tests {
         let secret = vec![0x42u8; 32];
         let label = b"expand";
         let seed = vec![0x01u8; 32];
-        
+
         let result_32 = prf::prf(&secret, label, &seed, 32).await.unwrap();
         let result_64 = prf::prf(&secret, label, &seed, 64).await.unwrap();
         let result_128 = prf::prf(&secret, label, &seed, 128).await.unwrap();
-        
+
         assert_eq!(result_32.len(), 32);
         assert_eq!(result_64.len(), 64);
         assert_eq!(result_128.len(), 128);
-        
+
         // First 32 bytes should match
         assert_eq!(&result_32[..], &result_64[..32]);
         assert_eq!(&result_64[..], &result_128[..64]);
@@ -826,13 +857,17 @@ mod tls12_tests {
         let pms = vec![0x03u8; 48]; // Pre-master secret
         let client_random = vec![0xaa; 32];
         let server_random = vec![0xbb; 32];
-        
-        let ms = prf::derive_master_secret(&pms, &client_random, &server_random).await.unwrap();
+
+        let ms = prf::derive_master_secret(&pms, &client_random, &server_random)
+            .await
+            .unwrap();
         assert_eq!(ms.len(), 48);
-        
+
         // Different randoms should produce different master secrets
         let different_client = vec![0xcc; 32];
-        let ms2 = prf::derive_master_secret(&pms, &different_client, &server_random).await.unwrap();
+        let ms2 = prf::derive_master_secret(&pms, &different_client, &server_random)
+            .await
+            .unwrap();
         assert_ne!(ms, ms2);
     }
 
@@ -841,15 +876,12 @@ mod tls12_tests {
         let master_secret = vec![0x42u8; 48];
         let client_random = vec![0xaa; 32];
         let server_random = vec![0xbb; 32];
-        
+
         // For AES-128-GCM: need 2*(0 + 16 + 4) = 40 bytes
-        let key_block = prf::derive_key_block(
-            &master_secret,
-            &client_random,
-            &server_random,
-            40,
-        ).await.unwrap();
-        
+        let key_block = prf::derive_key_block(&master_secret, &client_random, &server_random, 40)
+            .await
+            .unwrap();
+
         assert_eq!(key_block.len(), 40);
     }
 
@@ -857,7 +889,7 @@ mod tls12_tests {
     async fn test_key_material_extraction_gcm() {
         // AES-128-GCM: mac_key=0, key=16, iv=4
         let key_block = vec![0x42u8; 40];
-        
+
         let km = KeyMaterial::from_key_block(&key_block, 0, 16, 4).unwrap();
         assert_eq!(km.client_write_mac_key.len(), 0);
         assert_eq!(km.server_write_mac_key.len(), 0);
@@ -871,7 +903,7 @@ mod tls12_tests {
     async fn test_key_material_extraction_cbc_sha256() {
         // AES-128-CBC-SHA256: mac_key=32, key=16, iv=0
         let key_block = vec![0x42u8; 96];
-        
+
         let km = KeyMaterial::from_key_block(&key_block, 32, 16, 0).unwrap();
         assert_eq!(km.client_write_mac_key.len(), 32);
         assert_eq!(km.server_write_mac_key.len(), 32);
@@ -885,19 +917,23 @@ mod tls12_tests {
     async fn test_compute_verify_data() {
         let master_secret = vec![0x42u8; 48];
         let handshake_hash = vec![0xaa; 32];
-        
+
         let client_verify = prf::compute_verify_data(
             &master_secret,
             true, // is_client
             &handshake_hash,
-        ).await.unwrap();
-        
+        )
+        .await
+        .unwrap();
+
         let server_verify = prf::compute_verify_data(
             &master_secret,
             false, // is_server
             &handshake_hash,
-        ).await.unwrap();
-        
+        )
+        .await
+        .unwrap();
+
         assert_eq!(client_verify.len(), 12);
         assert_eq!(server_verify.len(), 12);
         // Client and server should have different verify_data
@@ -908,25 +944,25 @@ mod tls12_tests {
     async fn test_compute_mac_sha256() {
         let mac_key = vec![0x42u8; 32];
         let fragment = b"test data";
-        
+
         let mac = prf::compute_mac_sha256(
-            &mac_key,
-            0, // seq_num
-            23, // application_data
+            &mac_key, 0,      // seq_num
+            23,     // application_data
             0x0303, // TLS 1.2
             fragment,
-        ).await.unwrap();
-        
+        )
+        .await
+        .unwrap();
+
         assert_eq!(mac.len(), 32);
-        
+
         // Different sequence number should produce different MAC
         let mac2 = prf::compute_mac_sha256(
-            &mac_key,
-            1, // different seq_num
-            23,
-            0x0303,
-            fragment,
-        ).await.unwrap();
+            &mac_key, 1, // different seq_num
+            23, 0x0303, fragment,
+        )
+        .await
+        .unwrap();
         assert_ne!(mac, mac2);
     }
 
@@ -934,15 +970,15 @@ mod tls12_tests {
     async fn test_aes_cbc_128_roundtrip() {
         let key = vec![0x42u8; 16];
         let cipher = AesCbc::new_128(&key).await.unwrap();
-        
+
         let iv = vec![0x01u8; 16];
         let plaintext = b"Hello, TLS 1.2 CBC mode!";
-        
+
         let ciphertext = cipher.encrypt(&iv, plaintext).await.unwrap();
         // CBC with PKCS#7 padding should be a multiple of 16 bytes
         assert!(ciphertext.len() % 16 == 0);
         assert!(ciphertext.len() >= plaintext.len());
-        
+
         let decrypted = cipher.decrypt(&iv, &ciphertext).await.unwrap();
         assert_eq!(decrypted, plaintext);
     }
@@ -951,10 +987,10 @@ mod tls12_tests {
     async fn test_aes_cbc_256_roundtrip() {
         let key = vec![0x42u8; 32];
         let cipher = AesCbc::new_256(&key).await.unwrap();
-        
+
         let iv = vec![0x01u8; 16];
         let plaintext = b"AES-256-CBC encrypted message for TLS 1.2!";
-        
+
         let ciphertext = cipher.encrypt(&iv, plaintext).await.unwrap();
         let decrypted = cipher.decrypt(&iv, &ciphertext).await.unwrap();
         assert_eq!(decrypted, plaintext);
@@ -1013,14 +1049,14 @@ mod tls12_tests {
     async fn test_client_hello_build() {
         let state = Handshake12State::new("test.example.com").await.unwrap();
         let client_hello = state.build_client_hello();
-        
+
         // Should start with handshake type 1 (ClientHello)
         assert_eq!(client_hello[0], 1);
-        
+
         // Should contain TLS 1.2 version (0x0303)
         assert_eq!(client_hello[4], 0x03);
         assert_eq!(client_hello[5], 0x03);
-        
+
         // Client random should be at offset 6
         assert_eq!(&client_hello[6..38], &state.client_random[..]);
     }
@@ -1030,7 +1066,7 @@ mod tls12_tests {
         let server_name = "test.httpbin.org";
         let state = Handshake12State::new(server_name).await.unwrap();
         let client_hello = state.build_client_hello();
-        
+
         // The SNI should be in the extensions
         let sni_bytes = server_name.as_bytes();
         let mut found_sni = false;

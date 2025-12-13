@@ -32,15 +32,15 @@ pub mod stream;
 pub mod trust_store;
 
 #[cfg(feature = "tls12")]
-pub mod prf;
-#[cfg(feature = "tls12")]
 pub mod handshake_1_2;
+#[cfg(feature = "tls12")]
+pub mod prf;
 #[cfg(feature = "tls12")]
 pub mod record_1_2;
 #[cfg(feature = "tls12")]
 pub mod stream_1_2;
 
-pub use error::{TlsError, Result};
+pub use error::{Result, TlsError};
 pub use stream::TlsStream;
 
 #[cfg(feature = "tls12")]
@@ -63,11 +63,11 @@ pub enum TlsVersion {
     #[cfg(feature = "tls12")]
     Tls12,
     /// Try TLS 1.3 first.
-    /// 
+    ///
     /// Note: This does NOT automatically fall back to TLS 1.2 on failure because
     /// streams cannot be cloned/reused after a failed handshake. If TLS 1.3 fails,
     /// you must create a new connection and try with `Tls12` explicitly.
-    /// 
+    ///
     /// For automatic fallback, see the http.rs example which creates a new stream
     /// and retries with TLS 1.2 when TLS 1.3 fails.
     #[cfg(feature = "tls12")]
@@ -161,11 +161,7 @@ impl TlsConnector {
 
     /// Connect to a server, wrapping the given stream with TLS
     /// Uses TLS 1.3 only (for backward compatibility)
-    pub async fn connect<S>(
-        &self,
-        stream: S,
-        server_name: &str,
-    ) -> Result<TlsStream<S>>
+    pub async fn connect<S>(&self, stream: S, server_name: &str) -> Result<TlsStream<S>>
     where
         S: futures::io::AsyncRead + futures::io::AsyncWrite + Unpin,
     {
@@ -198,7 +194,10 @@ impl TlsConnector {
                 match TlsStream::connect(stream, server_name, self.config.clone()).await {
                     Ok(s) => Ok(TlsStreamWrapper::Tls13(s)),
                     Err(e) => {
-                        tracing::warn!("TLS 1.3 failed: {}, use Tls12 version explicitly for fallback", e);
+                        tracing::warn!(
+                            "TLS 1.3 failed: {}, use Tls12 version explicitly for fallback",
+                            e
+                        );
                         Err(e)
                     }
                 }
@@ -208,11 +207,7 @@ impl TlsConnector {
 
     /// Connect using TLS 1.2 explicitly
     #[cfg(feature = "tls12")]
-    pub async fn connect_tls12<S>(
-        &self,
-        stream: S,
-        server_name: &str,
-    ) -> Result<TlsStream12<S>>
+    pub async fn connect_tls12<S>(&self, stream: S, server_name: &str) -> Result<TlsStream12<S>>
     where
         S: futures::io::AsyncRead + futures::io::AsyncWrite + Unpin,
     {
