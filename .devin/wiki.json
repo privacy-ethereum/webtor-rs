@@ -6,7 +6,7 @@
     },
     {
       "topic": "Tor Protocol",
-      "content": "Uses vendored arti crates from vendor/arti/. Key dependency is tor-proto for circuit creation with CREATE2 and ntor-v3 handshakes. Circuit management in webtor/src/circuit.rs."
+      "content": "Uses vendored arti crates from vendor/arti/ (currently Arti 1.8.0 / tor-proto 0.37.0). Key dependency is tor-proto for circuit creation with CREATE2 and ntor-v3 handshakes. Circuit management in webtor/src/circuit.rs."
     },
     {
       "topic": "Transports",
@@ -19,6 +19,10 @@
     {
       "topic": "TLS",
       "content": "WASM uses subtle-tls (SubtleCrypto-based TLS 1.3/1.2). Native uses rustls. Ring crate doesn't compile to WASM, hence the custom implementation."
+    },
+    {
+      "topic": "WASM Compatibility",
+      "content": "Key WASM patches in vendored Arti: web-time for Instant (std::time::Instant panics on WASM), socket2 conditional deps, cfg guards for unix-only code. See tor-rtcompat and tor-proto modifications."
     },
     {
       "topic": "Circuit Padding",

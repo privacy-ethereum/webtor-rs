@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - WASM: Fixed socket2 dependency not compiling on wasm32 target
 - WASM: Fixed tor-basic-utils ENOTDIR check for non-unix/windows platforms
 - WASM: Fixed tor-memquota 8*GIB overflow on 32-bit platforms
+- WASM: Fixed std::time::Instant panic by using web-time crate throughout tor-rtcompat/tor-proto
 
 ## [0.3.0] - 2025-12-13
 
