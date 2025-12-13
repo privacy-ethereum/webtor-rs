@@ -166,15 +166,18 @@ impl TrustStore {
     }
 
     /// Find a root certificate that matches the given issuer
-    pub fn find_root_for_issuer(&self, issuer_der: &[u8]) -> Option<&RootCertificate> {
+    ///
+    /// Returns the DER-encoded certificate if found. Returns an owned value
+    /// to support both embedded and dynamically-loaded extended roots.
+    pub fn find_root_for_issuer(&self, issuer_der: &[u8]) -> Option<Vec<u8>> {
         // Parse the issuer to get subject
         if let Ok((_, issuer_cert)) = X509Certificate::from_der(issuer_der) {
             let issuer_subject = issuer_cert.subject().to_string();
 
-            // Check embedded roots
+            // Check embedded roots first
             for root in &self.embedded_roots {
                 if root.subject == issuer_subject {
-                    return Some(root);
+                    return Some(root.der.clone());
                 }
             }
 
@@ -182,9 +185,25 @@ impl TrustStore {
             if let Some(ref extended) = *self.extended_roots.borrow() {
                 for root in extended {
                     if root.subject == issuer_subject {
-                        // Can't return reference to borrowed content
-                        // This is a limitation of the current design
+                        return Some(root.der.clone());
                     }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Find a root certificate reference (embedded roots only)
+    ///
+    /// For cases where a reference is needed and extended roots are not required.
+    pub fn find_embedded_root_for_issuer(&self, issuer_der: &[u8]) -> Option<&RootCertificate> {
+        if let Ok((_, issuer_cert)) = X509Certificate::from_der(issuer_der) {
+            let issuer_subject = issuer_cert.subject().to_string();
+
+            for root in &self.embedded_roots {
+                if root.subject == issuer_subject {
+                    return Some(root);
                 }
             }
         }

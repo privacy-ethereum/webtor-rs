@@ -3,17 +3,23 @@
 use futures::channel::mpsc;
 use futures::StreamExt;
 use gloo_console::{error as console_error, log as console_log, warn as console_warn};
-use js_sys::{Array, ArrayBuffer, Uint8Array};
-use std::sync::{Arc, Mutex};
+use js_sys::ArrayBuffer;
+use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{CloseEvent, ErrorEvent, Event, MessageEvent, WebSocket};
 
 /// WebSocket connection for WASM
+///
+/// Stores closures as struct fields to avoid memory leaks from Closure::forget().
+/// The closures are dropped when the struct is dropped, preventing leaks.
 pub struct WasmWebSocketConnection {
     websocket: WebSocket,
-    receiver: Arc<Mutex<mpsc::UnboundedReceiver<Vec<u8>>>>,
+    receiver: mpsc::UnboundedReceiver<Vec<u8>>,
     _sender: mpsc::UnboundedSender<Vec<u8>>,
+    _on_message: Closure<dyn FnMut(MessageEvent)>,
+    _on_error: Closure<dyn FnMut(ErrorEvent)>,
+    _on_close: Closure<dyn FnMut(CloseEvent)>,
 }
 
 impl WasmWebSocketConnection {
@@ -25,7 +31,6 @@ impl WasmWebSocketConnection {
 
         // Create channel for receiving messages
         let (sender, receiver) = mpsc::unbounded();
-        let receiver = Arc::new(Mutex::new(receiver));
 
         // Set up message handler
         let sender_clone = sender.clone();
@@ -45,12 +50,12 @@ impl WasmWebSocketConnection {
         }) as Box<dyn FnMut(MessageEvent)>);
 
         websocket.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
-        on_message.forget();
 
         // Wait for connection to be ready
         let (ready_sender, ready_receiver) = futures::channel::oneshot::channel();
-        let ready_sender = Arc::new(Mutex::new(Some(ready_sender)));
+        let ready_sender = std::sync::Arc::new(std::sync::Mutex::new(Some(ready_sender)));
 
+        // Set up open handler (temporary, only for connection)
         let ready_sender_clone = ready_sender.clone();
         let on_open = Closure::wrap(Box::new(move |_event: Event| {
             console_log!("WebSocket connection opened");
@@ -60,7 +65,6 @@ impl WasmWebSocketConnection {
         }) as Box<dyn FnMut(Event)>);
 
         websocket.set_onopen(Some(on_open.as_ref().unchecked_ref()));
-        on_open.forget();
 
         // Set up error handler
         let ready_sender_clone = ready_sender.clone();
@@ -72,7 +76,6 @@ impl WasmWebSocketConnection {
         }) as Box<dyn FnMut(ErrorEvent)>);
 
         websocket.set_onerror(Some(on_error.as_ref().unchecked_ref()));
-        on_error.forget();
 
         // Set up close handler
         let ready_sender_clone = ready_sender.clone();
@@ -92,7 +95,6 @@ impl WasmWebSocketConnection {
         }) as Box<dyn FnMut(CloseEvent)>);
 
         websocket.set_onclose(Some(on_close.as_ref().unchecked_ref()));
-        on_close.forget();
 
         // Wait for connection or timeout
         let timeout =
@@ -125,10 +127,17 @@ impl WasmWebSocketConnection {
             }
         }
 
+        // Clear the temporary open handler - we don't need it after connection
+        websocket.set_onopen(None);
+        // on_open closure is dropped here since we don't store it
+
         Ok(Self {
             websocket,
             receiver,
             _sender: sender,
+            _on_message: on_message,
+            _on_error: on_error,
+            _on_close: on_close,
         })
     }
 
@@ -142,9 +151,7 @@ impl WasmWebSocketConnection {
     }
 
     pub async fn receive(&mut self) -> Result<Vec<u8>, JsValue> {
-        let mut receiver = self.receiver.lock().unwrap();
-
-        match receiver.next().await {
+        match self.receiver.next().await {
             Some(data) => {
                 console_log!(format!("Received {} bytes from WebSocket", data.len()));
                 Ok(data)
@@ -155,8 +162,7 @@ impl WasmWebSocketConnection {
 
     pub fn close(&mut self) {
         console_log!("Closing WebSocket connection");
-        // Clear handlers BEFORE closing to prevent "closure invoked after being dropped" errors
-        // The closures were forgotten, but JavaScript still has references to them
+        // Clear handlers BEFORE closing
         self.websocket.set_onmessage(None);
         self.websocket.set_onerror(None);
         self.websocket.set_onclose(None);
@@ -171,7 +177,7 @@ impl WasmWebSocketConnection {
 
 impl Drop for WasmWebSocketConnection {
     fn drop(&mut self) {
-        // Clear handlers when dropped to prevent "closure invoked after being dropped" errors
+        // Clear handlers when dropped to prevent callbacks to dropped closures
         self.websocket.set_onmessage(None);
         self.websocket.set_onerror(None);
         self.websocket.set_onclose(None);
@@ -181,7 +187,7 @@ impl Drop for WasmWebSocketConnection {
 
 /// WebSocket duplex implementation for WASM
 pub struct WasmWebSocketDuplex {
-    connection: Arc<Mutex<WasmWebSocketConnection>>,
+    connection: std::sync::Arc<std::sync::Mutex<WasmWebSocketConnection>>,
 }
 
 impl WasmWebSocketDuplex {
@@ -189,7 +195,7 @@ impl WasmWebSocketDuplex {
         let connection = WasmWebSocketConnection::connect(url).await?;
 
         Ok(Self {
-            connection: Arc::new(Mutex::new(connection)),
+            connection: std::sync::Arc::new(std::sync::Mutex::new(connection)),
         })
     }
 
@@ -266,6 +272,7 @@ mod tests {
     wasm_bindgen_test_configure!(run_in_browser);
 
     #[wasm_bindgen_test]
+    #[ignore = "requires external echo.websocket.org server which may be unavailable"]
     async fn test_websocket_connection() {
         // Test with a public echo WebSocket server
         let result = WasmWebSocketConnection::connect("wss://echo.websocket.org/").await;
@@ -286,7 +293,6 @@ mod tests {
                     "WebSocket test skipped due to connection error: {:?}",
                     e
                 ));
-                // This is expected in some test environments
             }
         }
     }

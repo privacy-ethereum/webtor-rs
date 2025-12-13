@@ -116,7 +116,7 @@ impl RecordLayer {
         S: AsyncRead + Unpin,
     {
         // Read record header (5 bytes)
-        tracing::info!(
+        tracing::debug!(
             "read_record: waiting for 5-byte header (cipher active: {})",
             self.read_cipher.is_some()
         );
@@ -125,7 +125,7 @@ impl RecordLayer {
             tracing::error!("read_record: read_exact for header failed: {}", e);
             TlsError::Io(e)
         })?;
-        tracing::info!("read_record: got header: {:02x?}", header);
+        tracing::debug!("read_record: got header: {:02x?}", header);
 
         let content_type = header[0];
         let _version = ((header[1] as u16) << 8) | (header[2] as u16);
@@ -136,13 +136,13 @@ impl RecordLayer {
         }
 
         // Read record body
-        tracing::info!("read_record: reading {} byte body", length);
+        tracing::debug!("read_record: reading {} byte body", length);
         let mut body = vec![0u8; length];
         stream.read_exact(&mut body).await.map_err(|e| {
             tracing::error!("read_record: body read failed: {}", e);
             TlsError::Io(e)
         })?;
-        tracing::info!(
+        tracing::debug!(
             "read_record: got body, type={}, len={}",
             content_type,
             length
@@ -153,9 +153,9 @@ impl RecordLayer {
         // Decrypt if cipher is active
         if let Some(ref mut cipher) = self.read_cipher {
             if content_type == CONTENT_TYPE_APPLICATION_DATA {
-                tracing::info!("read_record: decrypting APPLICATION_DATA record");
+                tracing::debug!("read_record: decrypting APPLICATION_DATA record");
                 let nonce = cipher.compute_nonce();
-                tracing::info!(
+                tracing::debug!(
                     "read_record: nonce={:02x?}, body_len={}",
                     &nonce,
                     body.len()
@@ -163,7 +163,7 @@ impl RecordLayer {
                 // Additional data is the record header with encrypted length
                 let aad = &header;
 
-                tracing::info!(
+                tracing::debug!(
                     "read_record: calling aead.decrypt (key_size={}, aad={:02x?})",
                     cipher.aead.key_size(),
                     aad

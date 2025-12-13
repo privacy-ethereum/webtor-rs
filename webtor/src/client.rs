@@ -369,7 +369,7 @@ impl TorClient {
                 .options
                 .bridge_fingerprint
                 .as_ref()
-                .map(|s| s.clone())
+                .cloned()
                 .unwrap_or_else(|| SNOWFLAKE_FINGERPRINT_PRIMARY.to_string()),
             BridgeType::WebTunnel { .. } => self
                 .options

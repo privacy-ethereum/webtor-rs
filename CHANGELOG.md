@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - UI: Added "Our Crates" version tooltip showing webtor, webtor-wasm, webtor-demo, subtle-tls versions
 
+### Changed
+- websocket.rs: Store closures on struct fields instead of Closure::forget() to prevent memory leaks
+- websocket.rs: Remove nested Arc<Mutex<>> wrapper for receiver (simpler design)
+- websocket.rs: Mark flaky echo.websocket.org test as #[ignore]
+- lib.rs: Build-time version extraction for dependencies via build.rs
+- trust_store.rs: Refactor find_root_for_issuer to return owned Vec<u8> to support extended roots
+- record.rs: Use debug! instead of info! for per-record logging (reduce noise)
+- client.rs: Use .cloned() instead of .map(|s| s.clone())
+- smux.rs: Clarify partial-write recovery guidance in poll_write comment
+
 ## [0.4.0] - 2025-12-13
 
 ### Changed

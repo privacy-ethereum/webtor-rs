@@ -614,7 +614,10 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for SmuxStream<S> {
         // Partial writes will return WriteZero error. This is acceptable because:
         // 1. SMUX frames are small (typically <64KB) and TCP usually handles them atomically
         // 2. Proper partial-write buffering would add significant complexity
-        // 3. On WriteZero error, the connection is corrupted - callers must reconnect, not retry
+        // 3. On WriteZero error, the connection is corrupted and unrecoverable
+        //
+        // Recovery: WriteZero means framing is broken. The caller MUST close the connection
+        // and establish a new one. Retrying on the same connection will send malformed data.
         let segment = SmuxSegment::psh(self.state.stream_id, buf.to_vec());
         let encoded = segment.encode();
         debug!(

@@ -857,9 +857,9 @@ pub fn get_version_info() -> JsValue {
     let info = serde_json::json!({
         "webtor": env!("CARGO_PKG_VERSION"),
         "webtor_wasm": env!("CARGO_PKG_VERSION"),
-        "subtle_tls": "0.1.0",
-        "arti_version": "1.8.0",
-        "tor_proto": "0.37.0",
+        "subtle_tls": env!("SUBTLE_TLS_VERSION"),
+        "arti_version": env!("ARTI_VERSION"),
+        "tor_proto": env!("TOR_PROTO_VERSION"),
     });
     serde_wasm_bindgen::to_value(&info).unwrap_or(JsValue::NULL)
 }
