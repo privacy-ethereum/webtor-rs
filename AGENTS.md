@@ -99,6 +99,7 @@ Use `grep -rn "std::time::Instant\|coarsetime::Instant" vendor/arti/` to find vi
 - **NEVER release when CI is failing** - always verify all checks pass first
 - **Create a release after every PR merged** to this repo (only if CI passes)
 - **Every release must include a build artifact** (not just source code)
+- **Release notes must include the changelog** - copy the relevant section from CHANGELOG.md
 - Steps:
   1. **Verify CI passes**: `gh pr view <PR> --json statusCheckRollup` or check GitHub Actions
   2. Update CHANGELOG.md (move Unreleased to new version)
@@ -107,4 +108,14 @@ Use `grep -rn "std::time::Instant\|coarsetime::Instant" vendor/arti/` to find vi
   5. Create and push git tag: `git tag vX.Y.Z && git push origin main --tags`
   6. Build WASM: `wasm-pack build webtor-demo --target web --out-dir pkg --release`
   7. Package build: `cd webtor-demo && zip -r ../webtor-demo-vX.Y.Z.zip pkg/`
-  8. Create release with artifact: `gh release create vX.Y.Z --title "vX.Y.Z" --notes "..." webtor-demo-vX.Y.Z.zip`
+  8. Create release with changelog in notes:
+     ```
+     gh release create vX.Y.Z --title "vX.Y.Z" --notes "## Added
+     - Feature 1
+     - Feature 2
+
+     ## Fixed
+     - Bug fix 1
+
+     **Full Changelog**: https://github.com/igor53627/webtor-rs/compare/vPREV...vX.Y.Z" webtor-demo-vX.Y.Z.zip
+     ```
