@@ -23,6 +23,8 @@ pub enum TorErrorKind {
     Protocol,
     /// Internal bugs or unexpected states
     Internal,
+    /// User-initiated cancellation
+    Cancelled,
 }
 
 impl TorErrorKind {
@@ -37,6 +39,7 @@ impl TorErrorKind {
             TorErrorKind::Environment => "ENVIRONMENT",
             TorErrorKind::Protocol => "PROTOCOL",
             TorErrorKind::Internal => "INTERNAL",
+            TorErrorKind::Cancelled => "CANCELLED",
         }
     }
 }
@@ -191,7 +194,7 @@ impl TorError {
             TorError::Json(_) => TorErrorKind::Internal,
             TorError::Internal(_) => TorErrorKind::Internal,
             TorError::NetDoc(_) => TorErrorKind::Bootstrap,
-            TorError::Cancelled => TorErrorKind::Internal,
+            TorError::Cancelled => TorErrorKind::Cancelled,
         }
     }
 
@@ -368,7 +371,7 @@ mod tests {
                 "INTERNAL",
                 false,
             ),
-            (TorError::Cancelled, TorErrorKind::Internal, "CANCELLED", false),
+            (TorError::Cancelled, TorErrorKind::Cancelled, "CANCELLED", false),
         ];
 
         for (err, expected_kind, expected_code, expected_retryable) in cases {
@@ -399,6 +402,7 @@ mod tests {
             TorErrorKind::Environment,
             TorErrorKind::Protocol,
             TorErrorKind::Internal,
+            TorErrorKind::Cancelled,
         ];
 
         for kind in kinds {
