@@ -13,6 +13,7 @@ pub mod http;
 pub mod isolation;
 pub mod kcp_stream;
 pub mod relay;
+pub mod retry;
 pub mod smux;
 pub mod snowflake;
 pub mod snowflake_broker;
@@ -31,8 +32,12 @@ pub mod webrtc_stream;
 
 pub use client::TorClient;
 pub use config::TorClientOptions;
-pub use error::{Result, TorError};
+pub use error::{Result, TorError, TorErrorKind};
 pub use isolation::{IsolationKey, StreamIsolationPolicy};
+pub use retry::{
+    retry_with_backoff, with_cancellation, with_timeout, with_timeout_and_cancellation,
+    CancellationToken, RetryPolicy,
+};
 
 // Re-export commonly used types
 pub use http::HttpResponse;

@@ -83,7 +83,7 @@ tokio-rustls = { workspace = true }
 # Native WebSocket (non-WASM only)
 tokio-tungstenite = { workspace = true }
 
-# Tokio compatibility utilities
+# Tokio compatibility utilities (includes CancellationToken)
 tokio-util = { version = "0.7", features = ["compat"] }
 
 [dev-dependencies]

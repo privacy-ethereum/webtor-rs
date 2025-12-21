@@ -6,6 +6,7 @@ use crate::directory::DirectoryManager;
 use crate::error::{Result, TorError};
 use crate::http::{HttpRequest, HttpResponse, TorHttpClient};
 use crate::relay::RelayManager;
+use crate::retry::{with_timeout_and_cancellation, CancellationToken};
 #[cfg(target_arch = "wasm32")]
 use crate::snowflake::{SnowflakeBridge, SnowflakeConfig};
 #[cfg(target_arch = "wasm32")]
@@ -36,6 +37,8 @@ pub struct TorClient {
     // Store the channel to prevent it from being dropped
     channel: Arc<RwLock<Option<Arc<tor_proto::channel::Channel>>>>,
     update_task: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
+    /// Shutdown token for cooperative cancellation of long-running operations
+    shutdown_token: CancellationToken,
 }
 
 impl TorClient {
@@ -77,6 +80,7 @@ impl TorClient {
             is_initialized: Arc::new(RwLock::new(false)),
             channel,
             update_task: Arc::new(RwLock::new(None)),
+            shutdown_token: CancellationToken::new(),
         };
 
         // Create initial circuit if requested
@@ -207,48 +211,59 @@ impl TorClient {
     }
 
     /// Update the circuit by creating a new one
-    pub async fn update_circuit(&self, _deadline: Duration) -> Result<()> {
-        info!("Creating new circuit...");
-        self.log("Creating new circuit...", LogType::Info);
+    /// The deadline parameter specifies the maximum time to wait for circuit creation
+    pub async fn update_circuit(&self, deadline: Duration) -> Result<()> {
+        with_timeout_and_cancellation(deadline, "update_circuit", &self.shutdown_token, async {
+            info!("Creating new circuit...");
+            self.log("Creating new circuit...", LogType::Info);
 
-        // Create a new circuit (this will select new random relays)
-        let circuit_manager = self.circuit_manager.read().await;
-        match circuit_manager.create_circuit().await {
-            Ok(circuit) => {
-                let circuit_info = circuit.read().await;
-                let relay_names: Vec<_> = circuit_info
-                    .relays
-                    .iter()
-                    .map(|r| r.nickname.clone())
-                    .collect();
-                self.log(
-                    &format!("New circuit: {}", relay_names.join(" → ")),
-                    LogType::Success,
-                );
-                Ok(())
+            let circuit_manager = self.circuit_manager.read().await;
+            match circuit_manager.create_circuit().await {
+                Ok(circuit) => {
+                    let circuit_info = circuit.read().await;
+                    let relay_names: Vec<_> = circuit_info
+                        .relays
+                        .iter()
+                        .map(|r| r.nickname.clone())
+                        .collect();
+                    self.log(
+                        &format!("New circuit: {}", relay_names.join(" → ")),
+                        LogType::Success,
+                    );
+                    Ok(())
+                }
+                Err(e) => {
+                    self.log(&format!("Failed to create circuit: {}", e), LogType::Error);
+                    Err(e)
+                }
             }
-            Err(e) => {
-                self.log(&format!("Failed to create circuit: {}", e), LogType::Error);
-                Err(e)
-            }
-        }
+        })
+        .await
     }
 
-    /// Wait for a circuit to be ready
+    /// Wait for a circuit to be ready (uses circuit_timeout from options)
     pub async fn wait_for_circuit(&self) -> Result<()> {
-        info!("Waiting for circuit to be ready");
+        let timeout = self.options.circuit_timeout_duration();
+        with_timeout_and_cancellation(
+            timeout,
+            "wait_for_circuit",
+            &self.shutdown_token,
+            async {
+                info!("Waiting for circuit to be ready");
 
-        let circuit_manager = self.circuit_manager.read().await;
-        let circuit = circuit_manager.get_ready_circuit().await?;
+                let circuit_manager = self.circuit_manager.read().await;
+                let circuit = circuit_manager.get_ready_circuit().await?;
 
-        // Wait for the circuit to be ready
-        let circuit_read = circuit.read().await;
-        if !circuit_read.is_ready() {
-            return Err(TorError::circuit_creation("Circuit is not ready"));
-        }
+                let circuit_read = circuit.read().await;
+                if !circuit_read.is_ready() {
+                    return Err(TorError::circuit_creation("Circuit is not ready"));
+                }
 
-        info!("Circuit is ready");
-        Ok(())
+                info!("Circuit is ready");
+                Ok(())
+            },
+        )
+        .await
     }
 
     /// Get current circuit status
@@ -342,6 +357,9 @@ impl TorClient {
     pub async fn close(&self) {
         info!("Closing Tor client");
 
+        // Signal cancellation to all in-flight operations
+        self.shutdown_token.cancel();
+
         // Stop update task if running
         if let Some(task) = self.update_task.write().await.take() {
             task.abort();
@@ -357,11 +375,42 @@ impl TorClient {
         info!("Tor client closed");
     }
 
+    /// Abort all in-flight operations.
+    ///
+    /// This cancels long-running operations like circuit creation and HTTP requests.
+    /// Operations will return `TorError::Cancelled`.
+    pub fn abort(&self) {
+        info!("Aborting all in-flight operations");
+        self.shutdown_token.cancel();
+    }
+
+    /// Check if the client has been aborted/shutdown.
+    pub fn is_aborted(&self) -> bool {
+        self.shutdown_token.is_cancelled()
+    }
+
+    /// Get the shutdown token for advanced cancellation use cases.
+    pub fn shutdown_token(&self) -> &CancellationToken {
+        &self.shutdown_token
+    }
+
     /// Establish the Tor channel (called during construction if requested)
     async fn establish_channel(&self) -> Result<()> {
+        let timeout = self.options.connection_timeout_duration();
+        with_timeout_and_cancellation(
+            timeout,
+            "establish_channel",
+            &self.shutdown_token,
+            self.establish_channel_impl(),
+        )
+        .await
+    }
+
+    /// Internal implementation of establish_channel (without timeout wrapper)
+    async fn establish_channel_impl(&self) -> Result<()> {
         self.log("Establishing channel", LogType::Info);
 
-        let timeout = Duration::from_millis(self.options.connection_timeout);
+        let timeout = self.options.connection_timeout_duration();
 
         // Get fingerprint - use default for Snowflake if not provided
         let fingerprint = match &self.options.bridge {
@@ -637,6 +686,7 @@ impl Clone for TorClient {
             is_initialized: self.is_initialized.clone(),
             channel: self.channel.clone(),
             update_task: self.update_task.clone(),
+            shutdown_token: self.shutdown_token.clone(),
         }
     }
 }

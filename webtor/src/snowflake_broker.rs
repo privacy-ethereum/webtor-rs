@@ -11,8 +11,9 @@
 //! 5. Client receives answer and completes WebRTC connection
 
 use crate::error::{Result, TorError};
+use crate::retry::{retry_with_backoff, RetryPolicy};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Snowflake broker URL (direct - has CORS support)
 pub const BROKER_URL: &str = "https://snowflake-broker.torproject.net/";
@@ -146,13 +147,8 @@ impl BrokerClient {
 
     /// Exchange SDP offer for SDP answer via broker
     /// Returns the SDP answer from a volunteer proxy
-    /// Retries up to MAX_RETRIES times if no proxy is available
+    /// Retries using RetryPolicy::network() if no proxy is available
     pub async fn negotiate(&self, sdp_offer: &str) -> Result<String> {
-        const MAX_RETRIES: u32 = 5;
-        const RETRY_DELAY_MS: u64 = 2000;
-
-        // Build request - ClientPollRequest::new() sets NAT to "unrestricted" by default
-        // Only override if we have a real NAT type (not Unknown)
         let mut request = ClientPollRequest::new(sdp_offer.to_string())
             .with_fingerprint(self.fingerprint.clone());
 
@@ -163,76 +159,62 @@ impl BrokerClient {
         let body = request.encode()?;
         let proxy_url = format!("{}/client", self.broker_url.trim_end_matches('/'));
 
-        for attempt in 1..=MAX_RETRIES {
-            info!(
-                "Contacting Snowflake broker (attempt {}/{})",
-                attempt, MAX_RETRIES
-            );
-            debug!("Broker URL: {}", proxy_url);
-
-            #[cfg(target_arch = "wasm32")]
-            let response_bytes = self.fetch_wasm(&proxy_url, &body).await?;
-
-            #[cfg(not(target_arch = "wasm32"))]
-            let response_bytes = self.fetch_native(&proxy_url, &body).await?;
-
-            let response = ClientPollResponse::decode(&response_bytes)?;
-
-            debug!(
-                "Broker response: answer={} bytes, error='{}'",
-                response.answer.len(),
-                response.error
-            );
-
-            if !response.error.is_empty() {
-                // Check if it's a "no proxy available" error - these are retryable
-                let is_retryable = response.error.contains("timed out")
-                    || response.error.contains("no proxies")
-                    || response.error.contains("match");
-
-                if is_retryable && attempt < MAX_RETRIES {
-                    warn!(
-                        "No volunteer proxy available, retrying in {}ms... ({}/{})",
-                        RETRY_DELAY_MS, attempt, MAX_RETRIES
-                    );
+        retry_with_backoff(
+            "snowflake_broker_negotiate",
+            RetryPolicy::network(),
+            |e| e.is_retryable(),
+            |attempt| {
+                let body = body.clone();
+                let proxy_url = proxy_url.clone();
+                async move {
+                    info!("Contacting Snowflake broker (attempt {})", attempt);
+                    debug!("Broker URL: {}", proxy_url);
 
                     #[cfg(target_arch = "wasm32")]
-                    gloo_timers::future::TimeoutFuture::new(RETRY_DELAY_MS as u32).await;
+                    let response_bytes = self.fetch_wasm(&proxy_url, &body).await?;
 
                     #[cfg(not(target_arch = "wasm32"))]
-                    tokio::time::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS)).await;
+                    let response_bytes = self.fetch_native(&proxy_url, &body).await?;
 
-                    continue;
+                    let response = ClientPollResponse::decode(&response_bytes)?;
+
+                    debug!(
+                        "Broker response: answer={} bytes, error='{}'",
+                        response.answer.len(),
+                        response.error
+                    );
+
+                    if !response.error.is_empty() {
+                        let is_retryable_error = response.error.contains("timed out")
+                            || response.error.contains("no proxies")
+                            || response.error.contains("match");
+
+                        if is_retryable_error {
+                            return Err(TorError::network(format!(
+                                "No Snowflake proxy available: {}",
+                                response.error
+                            )));
+                        } else {
+                            return Err(TorError::tor_protocol(format!(
+                                "Snowflake broker error: {}",
+                                response.error
+                            )));
+                        }
+                    }
+
+                    if response.answer.is_empty() {
+                        return Err(TorError::network("Broker returned empty answer"));
+                    }
+
+                    info!(
+                        "Got SDP answer from broker ({} bytes)",
+                        response.answer.len()
+                    );
+                    Ok(response.answer)
                 }
-
-                // Final attempt failed or non-retryable error
-                let user_message = if is_retryable {
-                    "No Snowflake volunteer proxies available after multiple attempts. \
-                     This can happen during high demand or network issues. Please try again later."
-                } else {
-                    &format!("Snowflake broker error: {}", response.error)
-                };
-
-                warn!("Broker error: {}", response.error);
-                return Err(TorError::Network(user_message.to_string()));
-            }
-
-            if response.answer.is_empty() {
-                return Err(TorError::Network(
-                    "Broker returned empty answer".to_string(),
-                ));
-            }
-
-            info!(
-                "Got SDP answer from broker ({} bytes)",
-                response.answer.len()
-            );
-            return Ok(response.answer);
-        }
-
-        Err(TorError::Network(
-            "No Snowflake volunteer proxies available. Please try again later.".to_string(),
-        ))
+            },
+        )
+        .await
     }
 
     /// Fetch via CORS proxy

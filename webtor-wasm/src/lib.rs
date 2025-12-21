@@ -8,7 +8,75 @@ use std::sync::Arc;
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::future_to_promise;
-use webtor::{TorClient as NativeTorClient, TorClientOptions as NativeTorClientOptions};
+use webtor::{TorClient as NativeTorClient, TorClientOptions as NativeTorClientOptions, TorError};
+
+/// Structured error for JavaScript consumption
+/// Provides machine-readable error classification for UX and retry decisions
+#[derive(serde::Serialize)]
+pub struct JsTorError {
+    /// Stable error code (e.g., "CIRCUIT_CREATION", "TIMEOUT", "NETWORK")
+    pub code: String,
+    /// Error kind/category (e.g., "network", "timeout", "circuit", "configuration")
+    pub kind: String,
+    /// Human-readable error message
+    pub message: String,
+    /// Whether this error is likely transient and the operation could succeed on retry
+    pub retryable: bool,
+}
+
+impl From<TorError> for JsTorError {
+    fn from(e: TorError) -> Self {
+        JsTorError {
+            code: e.code().to_string(),
+            kind: e.kind().as_code().to_lowercase(),
+            message: e.to_string(),
+            retryable: e.is_retryable(),
+        }
+    }
+}
+
+impl From<&TorError> for JsTorError {
+    fn from(e: &TorError) -> Self {
+        JsTorError {
+            code: e.code().to_string(),
+            kind: e.kind().as_code().to_lowercase(),
+            message: e.to_string(),
+            retryable: e.is_retryable(),
+        }
+    }
+}
+
+impl JsTorError {
+    /// Convert to a JsValue for returning from WASM functions
+    pub fn into_js_value(self) -> JsValue {
+        serde_wasm_bindgen::to_value(&self).unwrap_or_else(|_| JsValue::from_str(&self.message))
+    }
+
+    /// Create a JsTorError for non-TorError cases (e.g., "not initialized")
+    pub fn from_str(code: &str, kind: &str, message: &str, retryable: bool) -> Self {
+        JsTorError {
+            code: code.to_string(),
+            kind: kind.to_string(),
+            message: message.to_string(),
+            retryable,
+        }
+    }
+
+    /// Create a "not initialized" error
+    pub fn not_initialized() -> Self {
+        JsTorError::from_str(
+            "NOT_INITIALIZED",
+            "internal",
+            "TorClient is not initialized",
+            false,
+        )
+    }
+}
+
+/// Helper to convert TorError to JsValue for Promise rejection
+fn tor_error_to_js(e: TorError) -> JsValue {
+    JsTorError::from(e).into_js_value()
+}
 
 // Thread-local log callback for forwarding logs to JavaScript (WASM is single-threaded)
 thread_local! {
@@ -166,10 +234,7 @@ impl TorClient {
                 }
                 Err(e) => {
                     console_error!(format!("Failed to create TorClient: {}", e));
-                    Err(JsValue::from_str(&format!(
-                        "Failed to create TorClient: {}",
-                        e
-                    )))
+                    Err(tor_error_to_js(e))
                 }
             }
         })
@@ -184,7 +249,7 @@ impl TorClient {
             Some(client) => client.clone(),
             None => {
                 return future_to_promise(async move {
-                    Err(JsValue::from_str("TorClient is not initialized"))
+                    Err(JsTorError::not_initialized().into_js_value())
                 });
             }
         };
@@ -194,7 +259,6 @@ impl TorClient {
                 Ok(response) => {
                     console_log!("Fetch request completed successfully");
 
-                    // Convert to JavaScript-friendly response
                     let js_response = JsHttpResponse {
                         status: response.status,
                         headers: serde_wasm_bindgen::to_value(&response.headers).unwrap(),
@@ -206,7 +270,7 @@ impl TorClient {
                 }
                 Err(e) => {
                     console_error!(format!("Fetch request failed: {}", e));
-                    Err(JsValue::from_str(&format!("Fetch request failed: {}", e)))
+                    Err(tor_error_to_js(e))
                 }
             }
         })
@@ -221,7 +285,7 @@ impl TorClient {
             Some(client) => client.clone(),
             None => {
                 return future_to_promise(async move {
-                    Err(JsValue::from_str("TorClient is not initialized"))
+                    Err(JsTorError::not_initialized().into_js_value())
                 });
             }
         };
@@ -242,7 +306,7 @@ impl TorClient {
                 }
                 Err(e) => {
                     console_error!(format!("POST request failed: {}", e));
-                    Err(JsValue::from_str(&format!("POST request failed: {}", e)))
+                    Err(tor_error_to_js(e))
                 }
             }
         })
@@ -257,7 +321,7 @@ impl TorClient {
             Some(client) => client.clone(),
             None => {
                 return future_to_promise(async move {
-                    Err(JsValue::from_str("TorClient is not initialized"))
+                    Err(JsTorError::not_initialized().into_js_value())
                 });
             }
         };
@@ -290,10 +354,7 @@ impl TorClient {
                 }
                 Err(e) => {
                     console_error!(format!("POST JSON request failed: {}", e));
-                    Err(JsValue::from_str(&format!(
-                        "POST JSON request failed: {}",
-                        e
-                    )))
+                    Err(tor_error_to_js(e))
                 }
             }
         })
@@ -315,7 +376,7 @@ impl TorClient {
             Some(client) => client.clone(),
             None => {
                 return future_to_promise(async move {
-                    Err(JsValue::from_str("TorClient is not initialized"))
+                    Err(JsTorError::not_initialized().into_js_value())
                 });
             }
         };
@@ -353,7 +414,7 @@ impl TorClient {
                 }
                 Err(e) => {
                     console_error!(format!("Request failed: {}", e));
-                    Err(JsValue::from_str(&format!("Request failed: {}", e)))
+                    Err(tor_error_to_js(e))
                 }
             }
         })
@@ -395,10 +456,7 @@ impl TorClient {
                 }
                 Err(e) => {
                     console_error!(format!("One-time fetch request failed: {}", e));
-                    Err(JsValue::from_str(&format!(
-                        "One-time fetch request failed: {}",
-                        e
-                    )))
+                    Err(tor_error_to_js(e))
                 }
             }
         })
@@ -413,7 +471,7 @@ impl TorClient {
             Some(client) => client.clone(),
             None => {
                 return future_to_promise(async move {
-                    Err(JsValue::from_str("TorClient is not initialized"))
+                    Err(JsTorError::not_initialized().into_js_value())
                 });
             }
         };
@@ -429,7 +487,7 @@ impl TorClient {
                 }
                 Err(e) => {
                     console_error!(format!("Circuit update failed: {}", e));
-                    Err(JsValue::from_str(&format!("Circuit update failed: {}", e)))
+                    Err(tor_error_to_js(e))
                 }
             }
         })
@@ -444,7 +502,7 @@ impl TorClient {
             Some(client) => client.clone(),
             None => {
                 return future_to_promise(async move {
-                    Err(JsValue::from_str("TorClient is not initialized"))
+                    Err(JsTorError::not_initialized().into_js_value())
                 });
             }
         };
@@ -457,10 +515,7 @@ impl TorClient {
                 }
                 Err(e) => {
                     console_error!(format!("Failed to wait for circuit: {}", e));
-                    Err(JsValue::from_str(&format!(
-                        "Failed to wait for circuit: {}",
-                        e
-                    )))
+                    Err(tor_error_to_js(e))
                 }
             }
         })
@@ -473,7 +528,7 @@ impl TorClient {
             Some(client) => client.clone(),
             None => {
                 return future_to_promise(async move {
-                    Err(JsValue::from_str("TorClient is not initialized"))
+                    Err(JsTorError::not_initialized().into_js_value())
                 });
             }
         };
@@ -557,6 +612,33 @@ impl TorClient {
                 console_warn!("TorClient was already closed");
                 Ok(JsValue::UNDEFINED)
             })
+        }
+    }
+
+    /// Abort all in-flight operations.
+    ///
+    /// This cancels long-running operations like circuit creation and HTTP requests.
+    /// Operations will reject with a "CANCELLED" error code.
+    /// Unlike `close()`, this does not clean up resources - the client can still be used.
+    #[wasm_bindgen(js_name = abort)]
+    pub fn abort(&self) {
+        console_log!("Aborting TorClient operations");
+
+        if let Some(client) = &self.inner {
+            client.abort();
+            console_log!("TorClient abort signal sent");
+        } else {
+            console_warn!("TorClient is not initialized");
+        }
+    }
+
+    /// Check if the client has been aborted.
+    #[wasm_bindgen(js_name = isAborted)]
+    pub fn is_aborted(&self) -> bool {
+        if let Some(client) = &self.inner {
+            client.is_aborted()
+        } else {
+            true
         }
     }
 
@@ -854,7 +936,7 @@ pub fn init() -> Result<(), JsValue> {
     // Fail-fast: verify secure randomness is available before anything else
     check_secure_randomness().map_err(|e| {
         console_error!(format!("[FAIL] {}", e));
-        JsValue::from_str(&e)
+        JsTorError::from_str("WASM_ENVIRONMENT", "environment", &e, false).into_js_value()
     })?;
 
     // Set up tracing with our custom layer that forwards to JS

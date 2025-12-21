@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Error handling: Added `TorErrorKind` enum for error classification (Network, Timeout, Bootstrap, Circuit, Configuration, Environment, Protocol, Internal)
+- Error handling: Added `kind()`, `is_retryable()`, and `code()` methods to `TorError`
+- Error handling: Added `TorError::Cancelled` variant for user-initiated aborts
+- WASM: Added `JsTorError` struct for structured error reporting (code, kind, message, retryable)
+- Retry: Created `retry.rs` with `RetryPolicy` and `retry_with_backoff()` for transient failure handling
+- Retry: Added `with_timeout()` helper for consistent timeout handling
+- Retry: Added `CancellationToken` for cross-platform cooperative task cancellation
+- Retry: Added `with_cancellation()` and `with_timeout_and_cancellation()` helpers
+- Client: Added `abort()` method to cancel all in-flight operations
+- Client: Added `is_aborted()` and `shutdown_token()` methods
+- WASM: Exposed `abort()` and `isAborted()` in JavaScript bindings
+
+### Changed
+- Client: `establish_channel()`, `update_circuit()`, and `wait_for_circuit()` now support cancellation
+- Client: `close()` now triggers cancellation before cleanup
+
 ## [0.5.2] - 2025-12-21
 
 ### Added
