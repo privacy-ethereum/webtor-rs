@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2025-12-21
+
+### Added
+- WASM: Fail-fast CSPRNG check on init - validates crypto.getRandomValues availability before any crypto operations
+- WASM: init() now returns Result and throws clear error if secure randomness unavailable
+
+### Security
+- Prevents use of weak/predictable randomness for Tor circuit keys in unsupported environments
+
 ## [0.5.1] - 2025-12-13
 
 ### Added

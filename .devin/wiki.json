@@ -25,6 +25,10 @@
       "content": "Key WASM patches in vendored Arti: web-time for Instant (std::time::Instant panics on WASM), coarsetime replaced with web_time on WASM (coarse_time.rs), socket2 conditional deps, cfg guards for unix-only code. When upgrading Arti, always grep for 'std::time::Instant' and 'coarsetime::Instant' to find WASM violations."
     },
     {
+      "topic": "Security",
+      "content": "WASM init performs fail-fast CSPRNG check via getrandom (js feature) to verify crypto.getRandomValues availability. Throws clear error if secure randomness unavailable. Never falls back to weak randomness."
+    },
+    {
       "topic": "Circuit Padding",
       "content": "As of v0.3.0, webtor-rs silently drops unexpected padding cells for forward compatibility with future Tor network behavior. Full maybenot integration pending."
     },
