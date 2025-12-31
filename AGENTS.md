@@ -57,7 +57,7 @@ cd subtle-tls/fuzz && cargo +nightly fuzz run fuzz_server_hello
 
 - For WASM builds, consensus is embedded at compile time from `webtor/src/cached/`
 - The daily GitHub Action (`daily-consensus-update.yml`) refreshes cached consensus
-- Snowflake bridge is used for WASM; WebTunnel is available for native builds
+- Snowflake bridge is WASM-only; WebTunnel is available for both WASM and native builds
 - `ring` crate doesn't compile to WASM, so `subtle-tls` provides TLS via SubtleCrypto
 
 ## WASM Time Handling

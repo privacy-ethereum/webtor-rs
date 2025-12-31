@@ -243,7 +243,7 @@ Most modern sites work. Some legacy servers may have compatibility issues.
 - **Memory Safety** - Rust guarantees
 - **Audited Crypto** - ring, dalek crates (native), SubtleCrypto (WASM)
 - **Correct Snowflake** - Proper WebRTC architecture via broker
-- **Fuzz Testing** - Continuous fuzzing of TLS parsing
+- **Fuzz Testing** - Manual/CI-triggered fuzzing of TLS parsing (4 targets)
 
 ## Performance Characteristics
 
