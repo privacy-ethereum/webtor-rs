@@ -550,6 +550,33 @@ fn parse_http_response(data: &[u8], url: Url) -> Result<HttpResponse> {
         }
     }
 
+    // Decode body based on Transfer-Encoding or Content-Length
+    // Per HTTP/1.1 semantics: Transfer-Encoding takes precedence over Content-Length
+    let mut body = body;
+
+    let is_chunked = headers
+        .get("transfer-encoding")
+        .map(|te| te.to_ascii_lowercase().contains("chunked"))
+        .unwrap_or(false);
+
+    if is_chunked {
+        debug!("Decoding chunked transfer-encoding");
+        body = decode_chunked_body(&body)
+            .map_err(|e| TorError::http_request(format!("Failed to decode chunked body: {}", e)))?;
+    } else if let Some(cl) = headers.get("content-length") {
+        // Only enforce Content-Length for non-chunked responses
+        if let Ok(len) = cl.parse::<usize>() {
+            if body.len() > len {
+                debug!(
+                    "Body longer than Content-Length ({} > {}), truncating",
+                    body.len(),
+                    len
+                );
+                body.truncate(len);
+            }
+        }
+    }
+
     debug!(
         "Parsed response: status={}, headers={}, body_len={}",
         status,
@@ -570,6 +597,106 @@ fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+/// Decode a chunked transfer-encoded body into plain bytes
+fn decode_chunked_body(body: &[u8]) -> std::result::Result<Vec<u8>, String> {
+    let mut result = Vec::new();
+    let mut i = 0;
+
+    loop {
+        // Skip any leading whitespace/CRLF (some servers send extra)
+        while i < body.len() && (body[i] == b'\r' || body[i] == b'\n' || body[i] == b' ') {
+            i += 1;
+        }
+
+        if i >= body.len() {
+            break;
+        }
+
+        // Find end of chunk-size line
+        let line_start = i;
+        let mut line_end_opt = None;
+        while i + 1 < body.len() {
+            if body[i] == b'\r' && body[i + 1] == b'\n' {
+                line_end_opt = Some(i);
+                break;
+            }
+            i += 1;
+        }
+        let line_end = match line_end_opt {
+            Some(end) => end,
+            None => {
+                // No CRLF found - might be incomplete or malformed
+                // If we have some data already, return what we have
+                if !result.is_empty() {
+                    debug!("Incomplete chunk size line, returning partial result");
+                    break;
+                }
+                return Err("Incomplete chunk size line".into());
+            }
+        };
+
+        let line = &body[line_start..line_end];
+
+        // Parse hex size, ignoring any ";extensions"
+        let size_str = match std::str::from_utf8(line) {
+            Ok(s) => s.split(';').next().unwrap_or("").trim(),
+            Err(_) => return Err("Chunk size line is not valid UTF-8".into()),
+        };
+
+        // Handle empty line (shouldn't happen but be defensive)
+        if size_str.is_empty() {
+            i = line_end + 2;
+            continue;
+        }
+
+        let size = match usize::from_str_radix(size_str, 16) {
+            Ok(s) => s,
+            Err(e) => {
+                // If we already have data and hit parse error, might be trailing garbage
+                if !result.is_empty() {
+                    debug!(
+                        "Failed to parse chunk size '{}', returning partial result: {}",
+                        size_str, e
+                    );
+                    break;
+                }
+                return Err(format!("Invalid chunk size '{}': {}", size_str, e));
+            }
+        };
+
+        // Move past "\r\n"
+        i = line_end + 2;
+
+        // Size 0 means end of chunks
+        if size == 0 {
+            break;
+        }
+
+        // Ensure enough bytes for this chunk
+        if i + size > body.len() {
+            // Partial chunk - take what we can
+            let available = body.len() - i;
+            debug!(
+                "Chunk extends beyond body length (need {}, have {}), taking available",
+                size, available
+            );
+            result.extend_from_slice(&body[i..]);
+            break;
+        }
+
+        // Copy chunk bytes
+        result.extend_from_slice(&body[i..i + size]);
+        i += size;
+
+        // Each chunk is followed by "\r\n"
+        if i + 1 < body.len() && body[i] == b'\r' && body[i + 1] == b'\n' {
+            i += 2;
+        }
+    }
+
+    Ok(result)
 }
 
 /// HTTP response from Tor
@@ -703,5 +830,116 @@ mod tests {
         // This will fail because we don't have a real circuit
         let result = http_client.get("http://httpbin.org/ip").await;
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decode_chunked_body_single_chunk() {
+        // Single chunk: "Hello" (5 bytes = 0x5)
+        let chunked = b"5\r\nHello\r\n0\r\n\r\n";
+        let decoded = decode_chunked_body(chunked).unwrap();
+        assert_eq!(decoded, b"Hello");
+    }
+
+    #[test]
+    fn test_decode_chunked_body_multiple_chunks() {
+        // Two chunks: "Hello" + " World"
+        let chunked = b"5\r\nHello\r\n6\r\n World\r\n0\r\n\r\n";
+        let decoded = decode_chunked_body(chunked).unwrap();
+        assert_eq!(decoded, b"Hello World");
+    }
+
+    #[test]
+    fn test_decode_chunked_body_with_extension() {
+        // Chunk with extension (should be ignored)
+        let chunked = b"5;name=value\r\nHello\r\n0\r\n\r\n";
+        let decoded = decode_chunked_body(chunked).unwrap();
+        assert_eq!(decoded, b"Hello");
+    }
+
+    #[test]
+    fn test_decode_chunked_body_json_rpc() {
+        // Simulate JSON-RPC response like eth.drpc.org
+        let json = r#"{"jsonrpc":"2.0","id":1,"result":"0x1234"}"#;
+        let hex_len = format!("{:x}", json.len());
+        let chunked = format!("{}\r\n{}\r\n0\r\n\r\n", hex_len, json);
+        let decoded = decode_chunked_body(chunked.as_bytes()).unwrap();
+        assert_eq!(String::from_utf8(decoded).unwrap(), json);
+    }
+
+    #[test]
+    fn test_parse_http_response_chunked() {
+        // Full HTTP response with chunked encoding
+        let response_bytes =
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n0\r\n\r\n";
+        let url = Url::parse("http://example.com/").unwrap();
+
+        let response = parse_http_response(response_bytes, url).unwrap();
+
+        assert_eq!(response.status, 200);
+        assert_eq!(response.text().unwrap(), "Hello");
+    }
+
+    #[test]
+    fn test_parse_http_response_content_length_truncation() {
+        // Response with Content-Length but extra trailing data
+        let response_bytes = b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nHelloExtra garbage";
+        let url = Url::parse("http://example.com/").unwrap();
+
+        let response = parse_http_response(response_bytes, url).unwrap();
+
+        assert_eq!(response.status, 200);
+        assert_eq!(response.text().unwrap(), "Hello");
+    }
+
+    #[test]
+    fn test_decode_chunked_body_leading_crlf() {
+        let chunked = b"\r\n\r\n5\r\nHello\r\n0\r\n\r\n";
+        let decoded = decode_chunked_body(chunked).unwrap();
+        assert_eq!(decoded, b"Hello");
+    }
+
+    #[test]
+    fn test_decode_chunked_body_with_trailers() {
+        let chunked = b"5\r\nHello\r\n0\r\nX-Foo: bar\r\nAnother: header\r\n\r\nGarbageAfter";
+        let decoded = decode_chunked_body(chunked).unwrap();
+        assert_eq!(decoded, b"Hello");
+    }
+
+    #[test]
+    fn test_decode_chunked_body_invalid_first_chunk_size() {
+        let chunked = b"ZZZ\r\nHello\r\n0\r\n\r\n";
+        let err = decode_chunked_body(chunked).unwrap_err();
+        assert!(err.contains("Invalid chunk size"));
+    }
+
+    #[test]
+    fn test_decode_chunked_body_partial_second_chunk_returns_partial() {
+        // First chunk "Hello", second chunk claims 5 bytes but only 2 available
+        let chunked = b"5\r\nHello\r\n5\r\nWo";
+        let decoded = decode_chunked_body(chunked).unwrap();
+        assert_eq!(decoded, b"HelloWo");
+    }
+
+    #[test]
+    fn test_parse_http_response_chunked_mixed_case_header() {
+        let response_bytes =
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: Chunked\r\n\r\n5\r\nHello\r\n0\r\n\r\n";
+        let url = Url::parse("http://example.com/").unwrap();
+        let response = parse_http_response(response_bytes, url).unwrap();
+        assert_eq!(response.text().unwrap(), "Hello");
+    }
+
+    #[test]
+    fn test_parse_http_response_chunked_ignores_content_length() {
+        // Content-Length is wrong on purpose - chunked should take precedence
+        let response_bytes = b"HTTP/1.1 200 OK\r\n\
+            Transfer-Encoding: chunked\r\n\
+            Content-Length: 5\r\n\
+            \r\n\
+            5\r\nHello\r\n6\r\n World\r\n0\r\n\r\n";
+        let url = Url::parse("http://example.com/").unwrap();
+
+        let response = parse_http_response(response_bytes, url).unwrap();
+        assert_eq!(response.text().unwrap(), "Hello World");
     }
 }
