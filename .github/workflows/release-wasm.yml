@@ -109,3 +109,59 @@ jobs:
           webtor-wasm/pkg/webtor-wasm-${{ steps.version.outputs.version }}.zip
         draft: false
         prerelease: false
+
+    - name: Upload to Cloudflare R2
+      if: ${{ secrets.R2_ACCESS_KEY_ID != '' }}
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      run: |
+        # Install AWS CLI
+        pip install awscli
+
+        VERSION=${{ steps.version.outputs.version }}
+        
+        # Upload individual files to versioned path
+        aws s3 cp webtor-wasm/pkg/webtor_wasm.js \
+          s3://${R2_BUCKET}/webtor-wasm/${VERSION}/webtor_wasm.js \
+          --endpoint-url ${R2_ENDPOINT}
+        
+        aws s3 cp webtor-wasm/pkg/webtor_wasm.d.ts \
+          s3://${R2_BUCKET}/webtor-wasm/${VERSION}/webtor_wasm.d.ts \
+          --endpoint-url ${R2_ENDPOINT}
+        
+        aws s3 cp webtor-wasm/pkg/webtor_wasm_bg.wasm \
+          s3://${R2_BUCKET}/webtor-wasm/${VERSION}/webtor_wasm_bg.wasm \
+          --endpoint-url ${R2_ENDPOINT} \
+          --content-type "application/wasm"
+        
+        aws s3 cp webtor-wasm/pkg/webtor_wasm_bg.wasm.d.ts \
+          s3://${R2_BUCKET}/webtor-wasm/${VERSION}/webtor_wasm_bg.wasm.d.ts \
+          --endpoint-url ${R2_ENDPOINT}
+        
+        aws s3 cp webtor-wasm/pkg/package.json \
+          s3://${R2_BUCKET}/webtor-wasm/${VERSION}/package.json \
+          --endpoint-url ${R2_ENDPOINT}
+        
+        # Upload archives
+        aws s3 cp webtor-wasm/pkg/webtor-wasm-${VERSION}.tar.gz \
+          s3://${R2_BUCKET}/webtor-wasm/${VERSION}/webtor-wasm-${VERSION}.tar.gz \
+          --endpoint-url ${R2_ENDPOINT}
+        
+        aws s3 cp webtor-wasm/pkg/webtor-wasm-${VERSION}.zip \
+          s3://${R2_BUCKET}/webtor-wasm/${VERSION}/webtor-wasm-${VERSION}.zip \
+          --endpoint-url ${R2_ENDPOINT}
+        
+        # Copy to "latest" for convenience
+        aws s3 sync webtor-wasm/pkg/ s3://${R2_BUCKET}/webtor-wasm/latest/ \
+          --endpoint-url ${R2_ENDPOINT} \
+          --exclude "*" \
+          --include "webtor_wasm.js" \
+          --include "webtor_wasm.d.ts" \
+          --include "webtor_wasm_bg.wasm" \
+          --include "webtor_wasm_bg.wasm.d.ts" \
+          --include "package.json"
+        
+        echo "Uploaded to R2: webtor-wasm/${VERSION}/ and webtor-wasm/latest/"
