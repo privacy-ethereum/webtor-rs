@@ -78,6 +78,11 @@ fn tor_error_to_js(e: TorError) -> JsValue {
     JsTorError::from(e).into_js_value()
 }
 
+/// Helper to convert headers HashMap to JsValue, with fallback to empty object on error
+fn headers_to_js(headers: &std::collections::HashMap<String, String>) -> JsValue {
+    serde_wasm_bindgen::to_value(headers).unwrap_or_else(|_| js_sys::Object::new().into())
+}
+
 // Thread-local log callback for forwarding logs to JavaScript (WASM is single-threaded)
 thread_local! {
     static LOG_CALLBACK: RefCell<Option<js_sys::Function>> = RefCell::new(None);
@@ -261,7 +266,7 @@ impl TorClient {
 
                     let js_response = JsHttpResponse {
                         status: response.status,
-                        headers: serde_wasm_bindgen::to_value(&response.headers).unwrap(),
+                        headers: headers_to_js(&response.headers),
                         body: response.body,
                         url: response.url.to_string(),
                     };
@@ -297,7 +302,7 @@ impl TorClient {
 
                     let js_response = JsHttpResponse {
                         status: response.status,
-                        headers: serde_wasm_bindgen::to_value(&response.headers).unwrap(),
+                        headers: headers_to_js(&response.headers),
                         body: response.body,
                         url: response.url.to_string(),
                     };
@@ -345,7 +350,7 @@ impl TorClient {
 
                     let js_response = JsHttpResponse {
                         status: response.status,
-                        headers: serde_wasm_bindgen::to_value(&response.headers).unwrap(),
+                        headers: headers_to_js(&response.headers),
                         body: response.body,
                         url: response.url.to_string(),
                     };
@@ -405,7 +410,7 @@ impl TorClient {
 
                     let js_response = JsHttpResponse {
                         status: response.status,
-                        headers: serde_wasm_bindgen::to_value(&response.headers).unwrap(),
+                        headers: headers_to_js(&response.headers),
                         body: response.body,
                         url: response.url.to_string(),
                     };
@@ -447,7 +452,7 @@ impl TorClient {
 
                     let js_response = JsHttpResponse {
                         status: response.status,
-                        headers: serde_wasm_bindgen::to_value(&response.headers).unwrap(),
+                        headers: headers_to_js(&response.headers),
                         body: response.body,
                         url: response.url.to_string(),
                     };
@@ -658,7 +663,7 @@ impl TorClient {
         match client.fetch(url).await {
             Ok(response) => Ok(JsHttpResponse {
                 status: response.status,
-                headers: serde_wasm_bindgen::to_value(&response.headers).unwrap(),
+                headers: headers_to_js(&response.headers),
                 body: response.body,
                 url: response.url.to_string(),
             }),
@@ -671,7 +676,7 @@ impl TorClient {
         match client.post(url, body).await {
             Ok(response) => Ok(JsHttpResponse {
                 status: response.status,
-                headers: serde_wasm_bindgen::to_value(&response.headers).unwrap(),
+                headers: headers_to_js(&response.headers),
                 body: response.body,
                 url: response.url.to_string(),
             }),
@@ -715,7 +720,7 @@ impl TorClient {
         {
             Ok(response) => Ok(JsHttpResponse {
                 status: response.status,
-                headers: serde_wasm_bindgen::to_value(&response.headers).unwrap(),
+                headers: headers_to_js(&response.headers),
                 body: response.body,
                 url: response.url.to_string(),
             }),
@@ -800,7 +805,10 @@ impl JsHttpResponse {
         let text = self.text()?;
         serde_json::from_str::<serde_json::Value>(&text)
             .map_err(|e| JsValue::from_str(&format!("Invalid JSON: {}", e)))
-            .map(|v| serde_wasm_bindgen::to_value(&v).unwrap())
+            .and_then(|v| {
+                serde_wasm_bindgen::to_value(&v)
+                    .map_err(|e| JsValue::from_str(&format!("JSON serialization failed: {}", e)))
+            })
     }
 }
 
@@ -916,7 +924,7 @@ fn check_secure_randomness() -> Result<(), String> {
             e
         )
     })?;
-    
+
     if test_buf == [0u8; 32] {
         return Err(
             "Secure randomness check failed: CSPRNG returned all zeros. \

@@ -375,7 +375,7 @@ impl tor_rtcompat::CertifiedConn for WebTunnelStream {
         let (_, session) = self.inner.get_ref();
         session
             .export_keying_material(Vec::with_capacity(len), label, context)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+            .map_err(|e| io::Error::other(e))
     }
 }
 

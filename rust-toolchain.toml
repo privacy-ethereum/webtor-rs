@@ -1,0 +1,4 @@
+[toolchain]
+channel = "nightly"
+# Required for edition 2024 features used by vendored Arti crates
+# Minimum version: Rust 1.86+ (nightly required for edition2024)

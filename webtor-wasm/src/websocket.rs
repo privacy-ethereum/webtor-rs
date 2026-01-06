@@ -59,8 +59,10 @@ impl WasmWebSocketConnection {
         let ready_sender_clone = ready_sender.clone();
         let on_open = Closure::wrap(Box::new(move |_event: Event| {
             console_log!("WebSocket connection opened");
-            if let Some(sender) = ready_sender_clone.lock().unwrap().take() {
-                let _ = sender.send(Ok(()));
+            if let Ok(mut guard) = ready_sender_clone.lock() {
+                if let Some(sender) = guard.take() {
+                    let _ = sender.send(Ok(()));
+                }
             }
         }) as Box<dyn FnMut(Event)>);
 
@@ -70,8 +72,10 @@ impl WasmWebSocketConnection {
         let ready_sender_clone = ready_sender.clone();
         let on_error = Closure::wrap(Box::new(move |event: ErrorEvent| {
             console_error!("WebSocket error: {:?}", event);
-            if let Some(sender) = ready_sender_clone.lock().unwrap().take() {
-                let _ = sender.send(Err("WebSocket error".to_string()));
+            if let Ok(mut guard) = ready_sender_clone.lock() {
+                if let Some(sender) = guard.take() {
+                    let _ = sender.send(Err("WebSocket error".to_string()));
+                }
             }
         }) as Box<dyn FnMut(ErrorEvent)>);
 
@@ -85,12 +89,14 @@ impl WasmWebSocketConnection {
                 event.code(),
                 event.reason()
             ));
-            if let Some(sender) = ready_sender_clone.lock().unwrap().take() {
-                let _ = sender.send(Err(format!(
-                    "WebSocket closed early: code={}, reason={}",
-                    event.code(),
-                    event.reason()
-                )));
+            if let Ok(mut guard) = ready_sender_clone.lock() {
+                if let Some(sender) = guard.take() {
+                    let _ = sender.send(Err(format!(
+                        "WebSocket closed early: code={}, reason={}",
+                        event.code(),
+                        event.reason()
+                    )));
+                }
             }
         }) as Box<dyn FnMut(CloseEvent)>);
 
@@ -99,12 +105,11 @@ impl WasmWebSocketConnection {
         // Wait for connection or timeout
         let timeout =
             wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(&mut |resolve, _reject| {
-                let window = web_sys::window().unwrap();
-                window
-                    .set_timeout_with_callback_and_timeout_and_arguments_0(
+                if let Some(window) = web_sys::window() {
+                    let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
                         &resolve, 10000, // 10 second timeout
-                    )
-                    .unwrap();
+                    );
+                }
             }));
 
         let ready_fut = async {
@@ -200,23 +205,32 @@ impl WasmWebSocketDuplex {
     }
 
     pub async fn send(&self, data: &[u8]) -> Result<(), JsValue> {
-        let mut connection = self.connection.lock().unwrap();
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| JsValue::from_str("Failed to acquire connection lock"))?;
         connection.send(data).await
     }
 
     pub async fn receive(&self) -> Result<Vec<u8>, JsValue> {
-        let mut connection = self.connection.lock().unwrap();
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| JsValue::from_str("Failed to acquire connection lock"))?;
         connection.receive().await
     }
 
     pub fn close(&self) {
-        let mut connection = self.connection.lock().unwrap();
-        connection.close();
+        if let Ok(mut connection) = self.connection.lock() {
+            connection.close();
+        }
     }
 
     pub fn is_open(&self) -> bool {
-        let connection = self.connection.lock().unwrap();
-        connection.is_open()
+        self.connection
+            .lock()
+            .map(|conn| conn.is_open())
+            .unwrap_or(false)
     }
 }
 
@@ -229,10 +243,10 @@ pub async fn wait_for_websocket(
 
     // Set up timeout
     let timeout_promise = js_sys::Promise::new(&mut |resolve, _reject| {
-        let window = web_sys::window().unwrap();
-        window
-            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, timeout_ms as i32)
-            .unwrap();
+        if let Some(window) = web_sys::window() {
+            let _ = window
+                .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, timeout_ms as i32);
+        }
     });
 
     let connect_future = WasmWebSocketConnection::connect(url);

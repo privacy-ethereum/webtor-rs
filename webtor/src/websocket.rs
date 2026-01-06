@@ -70,7 +70,7 @@ mod wasm {
                 if let Some(tx) = open_tx_err.borrow_mut().take() {
                     let _ = tx.send(Err(format!("WebSocket error during connection: {}", msg)));
                 }
-                let _ = tx_err.unbounded_send(Err(io::Error::new(io::ErrorKind::Other, msg)));
+                let _ = tx_err.unbounded_send(Err(io::Error::other(msg)));
             }) as Box<dyn FnMut(ErrorEvent)>);
             socket.set_onerror(Some(on_error.as_ref().unchecked_ref()));
 
@@ -312,7 +312,7 @@ mod native {
                 }
                 Poll::Ready(Some(Err(e))) => {
                     trace!("WebSocket poll_read: error {}", e);
-                    Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e.to_string())))
+                    Poll::Ready(Err(io::Error::other(e.to_string())))
                 }
                 Poll::Ready(None) => {
                     trace!("WebSocket poll_read: EOF");
@@ -339,19 +339,19 @@ mod native {
             // 1. Wait until the sink is ready to accept a new message.
             ready!(Pin::new(&mut self.write)
                 .poll_ready(cx)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?);
+                .map_err(|e| io::Error::other(e.to_string()))?);
 
             // 2. Enqueue our WebSocket frame.
             let len = buf.len();
             let msg = Message::Binary(buf.to_vec());
             Pin::new(&mut self.write)
                 .start_send(msg)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+                .map_err(|e| io::Error::other(e.to_string()))?;
 
             // 3. Flush the sink so the frame actually hits the network.
             ready!(Pin::new(&mut self.write)
                 .poll_flush(cx)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?);
+                .map_err(|e| io::Error::other(e.to_string()))?);
 
             trace!("WebSocket poll_write: wrote and flushed {} bytes", len);
             Poll::Ready(Ok(len))
@@ -360,13 +360,13 @@ mod native {
         fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
             Pin::new(&mut self.write)
                 .poll_flush(cx)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+                .map_err(|e| io::Error::other(e.to_string()))
         }
 
         fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
             Pin::new(&mut self.write)
                 .poll_close(cx)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+                .map_err(|e| io::Error::other(e.to_string()))
         }
     }
 }

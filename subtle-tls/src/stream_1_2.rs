@@ -320,7 +320,7 @@ where
                     return Ok(0);
                 }
                 Err(e) => {
-                    return Err(io::Error::new(io::ErrorKind::Other, e.to_string()));
+                    return Err(io::Error::other(e.to_string()));
                 }
             };
 
@@ -359,7 +359,7 @@ where
         self.record_layer
             .write_record(&mut self.inner, CONTENT_TYPE_APPLICATION_DATA, buf)
             .await
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| io::Error::other(e.to_string()))?;
         Ok(buf.len())
     }
 
