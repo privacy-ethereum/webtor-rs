@@ -552,7 +552,7 @@ fn parse_http_response(data: &[u8], url: Url) -> Result<HttpResponse> {
 
     // Decode body based on Transfer-Encoding or Content-Length
     // Per HTTP/1.1 semantics: Transfer-Encoding takes precedence over Content-Length
-    let mut body = body;
+    let mut decoded_body = body;
 
     let is_chunked = headers
         .get("transfer-encoding")
@@ -561,18 +561,18 @@ fn parse_http_response(data: &[u8], url: Url) -> Result<HttpResponse> {
 
     if is_chunked {
         debug!("Decoding chunked transfer-encoding");
-        body = decode_chunked_body(&body)
+        decoded_body = decode_chunked_body(&decoded_body)
             .map_err(|e| TorError::http_request(format!("Failed to decode chunked body: {}", e)))?;
     } else if let Some(cl) = headers.get("content-length") {
         // Only enforce Content-Length for non-chunked responses
         if let Ok(len) = cl.parse::<usize>() {
-            if body.len() > len {
+            if decoded_body.len() > len {
                 debug!(
                     "Body longer than Content-Length ({} > {}), truncating",
-                    body.len(),
+                    decoded_body.len(),
                     len
                 );
-                body.truncate(len);
+                decoded_body.truncate(len);
             }
         }
     }
@@ -581,13 +581,13 @@ fn parse_http_response(data: &[u8], url: Url) -> Result<HttpResponse> {
         "Parsed response: status={}, headers={}, body_len={}",
         status,
         headers.len(),
-        body.len()
+        decoded_body.len()
     );
 
     Ok(HttpResponse {
         status,
         headers,
-        body,
+        body: decoded_body,
         url,
     })
 }
