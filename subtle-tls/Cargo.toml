@@ -49,6 +49,10 @@ getrandom = { version = "0.2", features = ["js"] }
 # Pure Rust crypto (for ChaCha20-Poly1305 - SubtleCrypto doesn't support it)
 chacha20poly1305 = "0.10"
 
+# Pure Rust HMAC/SHA2 for synchronous HKDF in export_keying_material
+hmac = "0.12"
+sha2 = "0.10"
+
 # X25519 key exchange (pure Rust)
 x25519-dalek = { version = "2.0", features = ["static_secrets"] }
 

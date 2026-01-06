@@ -17,6 +17,7 @@ use tor_proto::client::circuit::TimeoutEstimator;
 use tracing::{debug, error, info, warn};
 
 /// Base URL for cached consensus files (GitHub Pages)
+#[cfg(target_arch = "wasm32")]
 const CACHED_CONSENSUS_BASE_URL: &str = "https://igor53627.github.io/webtor-rs";
 
 /// Directory manager for handling network documents
@@ -82,6 +83,7 @@ impl DirectoryManager {
     }
 
     /// Process consensus and microdescriptor data into relays
+    #[cfg(target_arch = "wasm32")]
     async fn process_consensus_data(
         &self,
         consensus_body: &str,
@@ -526,6 +528,7 @@ impl DirectoryManager {
 }
 
 /// Decompress brotli-compressed data
+#[cfg(target_arch = "wasm32")]
 fn decompress_brotli(compressed: &[u8]) -> std::io::Result<String> {
     let mut decompressed = Vec::new();
     let mut decoder = brotli::Decompressor::new(compressed, 4096);

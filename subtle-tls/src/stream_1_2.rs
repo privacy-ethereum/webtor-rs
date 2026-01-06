@@ -26,8 +26,6 @@ pub struct TlsStream12<S> {
     read_buffer: Vec<u8>,
     /// Position in read buffer
     read_pos: usize,
-    /// Whether the connection is established
-    connected: bool,
     /// DER-encoded peer certificate
     peer_certificate: Option<Vec<u8>>,
 }
@@ -153,7 +151,6 @@ where
             record_layer,
             read_buffer: Vec::new(),
             read_pos: 0,
-            connected: true,
             peer_certificate,
         })
     }

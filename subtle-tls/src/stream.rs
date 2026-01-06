@@ -29,8 +29,6 @@ pub struct TlsStream<S> {
     read_buffer: Vec<u8>,
     /// Position in read buffer
     read_pos: usize,
-    /// Whether the connection is established
-    connected: bool,
     /// DER-encoded peer certificate (for CertifiedConn)
     peer_certificate: Option<Vec<u8>>,
     /// TLS keying material (for export_keying_material)
@@ -41,11 +39,10 @@ pub struct TlsStream<S> {
     record_write_buffer: Vec<u8>,
 }
 
-/// Stored keying material for RFC 5705 key export
+/// Stored keying material for RFC 8446 key export
 struct KeyingMaterial {
-    master_secret: Vec<u8>,
-    client_random: Vec<u8>,
-    server_random: Vec<u8>,
+    /// Exporter master secret derived during handshake
+    exporter_master_secret: Vec<u8>,
 }
 
 impl<S> TlsStream<S>
@@ -148,14 +145,20 @@ where
 
         info!("TLS 1.3 handshake completed with {}", server_name);
 
+        // Store exporter master secret for RFC 8446 key export
+        let keying_material = handshake
+            .get_exporter_master_secret()
+            .map(|secret| KeyingMaterial {
+                exporter_master_secret: secret.to_vec(),
+            });
+
         Ok(Self {
             inner: stream,
             record_layer,
             read_buffer: Vec::new(),
             read_pos: 0,
-            connected: true,
             peer_certificate,
-            keying_material: None, // TODO: implement keying material export
+            keying_material,
             record_read_buffer: Vec::new(),
             record_write_buffer: Vec::new(),
         })
@@ -474,7 +477,6 @@ where
         self.record_layer
             .write_record(&mut self.inner, CONTENT_TYPE_ALERT, &alert)
             .await?;
-        self.connected = false;
         Ok(())
     }
 }
@@ -734,7 +736,6 @@ where
             other => return other,
         }
 
-        self.connected = false;
         Pin::new(&mut self.inner).poll_close(cx)
     }
 }
@@ -826,13 +827,92 @@ where
     fn export_keying_material(
         &self,
         len: usize,
-        _label: &[u8],
-        _context: Option<&[u8]>,
+        label: &[u8],
+        context: Option<&[u8]>,
     ) -> io::Result<Vec<u8>> {
-        // TLS 1.3 keying material export is complex and requires storing
-        // the master secret. For now, return zeros as a placeholder.
-        // TODO: Implement proper RFC 5705 key export
-        warn!("export_keying_material called but not fully implemented");
-        Ok(vec![0u8; len])
+        // RFC 8446 Section 7.5: Exporters
+        // TLS-Exporter(label, context_value, key_length) =
+        //     HKDF-Expand-Label(Derive-Secret(Secret, label, ""),
+        //                       "exporter", Hash(context_value), key_length)
+
+        let keying_material = self.keying_material.as_ref().ok_or_else(|| {
+            io::Error::other("Keying material not available (handshake incomplete?)")
+        })?;
+
+        let context_data = context.unwrap_or(&[]);
+
+        // Hash the context value
+        use sha2::Digest;
+        let context_hash: [u8; 32] = sha2::Sha256::digest(context_data).into();
+
+        // Derive-Secret(exporter_master_secret, label, "") = HKDF-Expand-Label(secret, label, empty_hash, 32)
+        let empty_hash: [u8; 32] = sha2::Sha256::digest([]).into();
+        let derived_secret = hkdf_expand_label_sync(
+            &keying_material.exporter_master_secret,
+            label,
+            &empty_hash,
+            32,
+        )
+        .map_err(io::Error::other)?;
+
+        // HKDF-Expand-Label(derived_secret, "exporter", context_hash, len)
+        let result = hkdf_expand_label_sync(&derived_secret, b"exporter", &context_hash, len)
+            .map_err(io::Error::other)?;
+
+        debug!("export_keying_material: exported {} bytes", len);
+        Ok(result)
     }
+}
+
+/// Synchronous HKDF-Expand-Label for TLS 1.3 (RFC 8446)
+/// Uses pure Rust hmac/sha2 crates instead of async SubtleCrypto
+fn hkdf_expand_label_sync(
+    secret: &[u8],
+    label: &[u8],
+    context: &[u8],
+    length: usize,
+) -> std::result::Result<Vec<u8>, &'static str> {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    // Build HkdfLabel structure
+    // HkdfLabel = struct {
+    //     uint16 length = Length;
+    //     opaque label<7..255> = "tls13 " + Label;
+    //     opaque context<0..255> = Context;
+    // }
+    let mut full_label = b"tls13 ".to_vec();
+    full_label.extend_from_slice(label);
+
+    let mut hkdf_label = Vec::new();
+    hkdf_label.push((length >> 8) as u8);
+    hkdf_label.push(length as u8);
+    hkdf_label.push(full_label.len() as u8);
+    hkdf_label.extend_from_slice(&full_label);
+    hkdf_label.push(context.len() as u8);
+    hkdf_label.extend_from_slice(context);
+
+    // HKDF-Expand
+    let hash_len = 32; // SHA-256
+    let n = length.div_ceil(hash_len);
+
+    if n > 255 {
+        return Err("HKDF output too long");
+    }
+
+    let mut okm = Vec::with_capacity(length);
+    let mut t = Vec::new();
+
+    for i in 1..=n {
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(secret).map_err(|_| "Invalid HMAC key length")?;
+        mac.update(&t);
+        mac.update(&hkdf_label);
+        mac.update(&[i as u8]);
+        t = mac.finalize().into_bytes().to_vec();
+        okm.extend_from_slice(&t);
+    }
+
+    okm.truncate(length);
+    Ok(okm)
 }

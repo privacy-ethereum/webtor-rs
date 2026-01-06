@@ -91,6 +91,8 @@ pub struct HandshakeState {
     pub client_app_secret: Option<Vec<u8>>,
     /// Server application traffic secret
     pub server_app_secret: Option<Vec<u8>>,
+    /// Exporter master secret for RFC 8446 key export
+    pub exporter_master_secret: Option<Vec<u8>>,
 }
 
 impl HandshakeState {
@@ -114,6 +116,7 @@ impl HandshakeState {
             server_handshake_secret: None,
             client_app_secret: None,
             server_app_secret: None,
+            exporter_master_secret: None,
         })
     }
 
@@ -516,10 +519,16 @@ impl HandshakeState {
         let server_app_secret =
             Hkdf::derive_secret(&master_secret, "s ap traffic", &transcript_hash).await?;
 
+        // Exporter master secret (RFC 8446 Section 7.5)
+        // exporter_master_secret = Derive-Secret(Master Secret, "exp master", Transcript-Hash)
+        let exporter_master_secret =
+            Hkdf::derive_secret(&master_secret, "exp master", &transcript_hash).await?;
+
         self.client_app_secret = Some(client_app_secret);
         self.server_app_secret = Some(server_app_secret);
+        self.exporter_master_secret = Some(exporter_master_secret);
 
-        debug!("Derived application traffic secrets");
+        debug!("Derived application traffic secrets and exporter master secret");
         Ok(())
     }
 
@@ -615,6 +624,11 @@ impl HandshakeState {
         let iv = Hkdf::expand_label(secret, "iv", &[], 12).await?;
 
         Ok((key, iv))
+    }
+
+    /// Get the exporter master secret for RFC 8446 key export
+    pub fn get_exporter_master_secret(&self) -> Option<&[u8]> {
+        self.exporter_master_secret.as_deref()
     }
 }
 

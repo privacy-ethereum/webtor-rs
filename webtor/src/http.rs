@@ -8,18 +8,12 @@ use crate::isolation::{IsolationKey, StreamIsolationPolicy};
 use crate::tls::wrap_with_tls;
 use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use http::Method;
-#[cfg(not(target_arch = "wasm32"))]
-use rustls;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-#[cfg(not(target_arch = "wasm32"))]
-use tokio_util::compat::FuturesAsyncReadCompatExt;
 use tracing::{debug, info, warn};
 use url::Url;
-#[cfg(not(target_arch = "wasm32"))]
-use webpki_roots;
 
 /// HTTP request configuration
 #[derive(Debug, Clone)]
@@ -128,40 +122,13 @@ impl HttpRequest {
     }
 }
 
-trait AnyStream: AsyncRead + AsyncWrite + Send + Unpin {}
-impl<T: AsyncRead + AsyncWrite + Send + Unpin> AnyStream for T {}
-
 /// HTTP client that routes requests through Tor circuits
 pub struct TorHttpClient {
     circuit_manager: Arc<RwLock<CircuitManager>>,
     isolation_policy: StreamIsolationPolicy,
-    #[cfg(not(target_arch = "wasm32"))]
-    tls_connector: Arc<tokio_rustls::TlsConnector>,
 }
 
 impl TorHttpClient {
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn new(
-        circuit_manager: Arc<RwLock<CircuitManager>>,
-        isolation_policy: StreamIsolationPolicy,
-    ) -> Self {
-        let mut root_cert_store = rustls::RootCertStore::empty();
-        root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-
-        let config = rustls::ClientConfig::builder()
-            .with_root_certificates(root_cert_store)
-            .with_no_client_auth();
-
-        let tls_connector = tokio_rustls::TlsConnector::from(Arc::new(config));
-
-        Self {
-            circuit_manager,
-            isolation_policy,
-            tls_connector: Arc::new(tls_connector),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
     pub fn new(
         circuit_manager: Arc<RwLock<CircuitManager>>,
         isolation_policy: StreamIsolationPolicy,
@@ -302,49 +269,6 @@ impl TorHttpClient {
 
         // Parse the HTTP response
         parse_http_response(&response_bytes, request.url)
-    }
-
-    fn parse_response(data: Vec<u8>, url: Url) -> Result<HttpResponse> {
-        // Simple HTTP parser
-        // Split into headers and body
-        let mut headers = [httparse::Header {
-            name: "",
-            value: &[],
-        }; 64];
-        let mut req = httparse::Response::new(&mut headers);
-
-        let status = match req.parse(&data) {
-            Ok(httparse::Status::Complete(n)) => {
-                let code = req.code.unwrap_or(0);
-                let mut headers_map = HashMap::new();
-
-                for header in req.headers {
-                    if let Ok(value) = std::str::from_utf8(header.value) {
-                        headers_map.insert(header.name.to_string(), value.to_string());
-                    }
-                }
-
-                let body = data[n..].to_vec();
-
-                HttpResponse {
-                    status: code,
-                    headers: headers_map,
-                    body,
-                    url,
-                }
-            }
-            Ok(httparse::Status::Partial) => {
-                return Err(TorError::serialization("Partial response received"))
-            }
-            Err(e) => {
-                return Err(TorError::serialization(format!(
-                    "Failed to parse response: {}",
-                    e
-                )))
-            }
-        };
-
-        Ok(status)
     }
 
     /// Convenience method for GET requests

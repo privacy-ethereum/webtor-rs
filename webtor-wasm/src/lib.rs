@@ -1,7 +1,5 @@
 //! WebAssembly bindings for webtor
 
-mod websocket;
-
 use gloo_console::{error as console_error, log as console_log, warn as console_warn};
 use std::cell::RefCell;
 use std::sync::Arc;
