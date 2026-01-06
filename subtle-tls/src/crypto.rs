@@ -187,7 +187,7 @@ impl X25519KeyPair {
             .map_err(|e| TlsError::crypto(format!("Failed to generate random bytes: {}", e)))?;
 
         // Create secret from random bytes
-        let secret = EphemeralSecret::random_from_rng(&mut rand::rngs::OsRng);
+        let secret = EphemeralSecret::random_from_rng(rand::rngs::OsRng);
         let public = X25519PublicKey::from(&secret);
 
         Ok(Self {
@@ -504,7 +504,7 @@ impl AesCbc {
         if iv.len() != 16 {
             return Err(TlsError::crypto("AES-CBC requires 16-byte IV"));
         }
-        if ciphertext.is_empty() || ciphertext.len() % 16 != 0 {
+        if ciphertext.is_empty() || !ciphertext.len().is_multiple_of(16) {
             return Err(TlsError::crypto(
                 "AES-CBC ciphertext must be multiple of 16 bytes",
             ));
@@ -701,7 +701,7 @@ impl Hkdf {
     /// HKDF-Expand: Expand a pseudorandom key to desired length
     pub async fn expand(prk: &[u8], info: &[u8], length: usize) -> Result<Vec<u8>> {
         let hash_len = 32; // SHA-256
-        let n = (length + hash_len - 1) / hash_len;
+        let n = length.div_ceil(hash_len);
 
         if n > 255 {
             return Err(TlsError::crypto("HKDF output too long"));

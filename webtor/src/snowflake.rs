@@ -307,7 +307,7 @@ impl SnowflakeStream {
             SnowflakeInner::WebRtc(tls) => tls
                 .close()
                 .await
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string())),
+                .map_err(|e| io::Error::other(e.to_string())),
             #[cfg(not(target_arch = "wasm32"))]
             SnowflakeInner::Placeholder => unreachable!("Snowflake not available on native"),
         }

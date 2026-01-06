@@ -256,11 +256,8 @@ impl RecordLayer {
 
         trace!("Write record: type={}, len={}", record_type, body.len());
 
-        stream
-            .write_all(&record)
-            .await
-            .map_err(|e| TlsError::Io(e))?;
-        stream.flush().await.map_err(|e| TlsError::Io(e))?;
+        stream.write_all(&record).await.map_err(TlsError::Io)?;
+        stream.flush().await.map_err(TlsError::Io)?;
 
         Ok(())
     }

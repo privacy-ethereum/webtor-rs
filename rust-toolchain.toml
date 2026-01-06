@@ -1,0 +1,7 @@
+[toolchain]
+channel = "nightly-2026-01-05"
+targets = ["wasm32-unknown-unknown"]
+components = ["rustfmt", "clippy"]
+# Required for edition 2024 features used by vendored Arti crates
+# Pinned nightly for reproducible builds - update periodically
+# Track when stable supports edition 2024 to migrate off nightly

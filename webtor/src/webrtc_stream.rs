@@ -408,7 +408,7 @@ mod wasm {
         ) -> Poll<io::Result<usize>> {
             match self.send(buf) {
                 Ok(()) => Poll::Ready(Ok(buf.len())),
-                Err(e) => Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e.to_string()))),
+                Err(e) => Poll::Ready(Err(io::Error::other(e.to_string()))),
             }
         }
 

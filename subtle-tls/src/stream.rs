@@ -14,19 +14,17 @@ use crate::handshake::{
 use crate::record::RecordLayer;
 use crate::TlsConfig;
 use futures::io::{AsyncRead, AsyncWrite};
-use std::cell::RefCell;
 use std::io;
 use std::pin::Pin;
-use std::rc::Rc;
 use std::task::{Context, Poll};
 use tracing::{debug, info, trace, warn};
 
 /// TLS-encrypted stream
 pub struct TlsStream<S> {
     /// Underlying transport stream
-    inner: Rc<RefCell<S>>,
+    inner: S,
     /// Record layer for reading/writing TLS records
-    record_layer: Rc<RefCell<RecordLayer>>,
+    record_layer: RecordLayer,
     /// Buffered plaintext for reading
     read_buffer: Vec<u8>,
     /// Position in read buffer
@@ -151,8 +149,8 @@ where
         info!("TLS 1.3 handshake completed with {}", server_name);
 
         Ok(Self {
-            inner: Rc::new(RefCell::new(stream)),
-            record_layer: Rc::new(RefCell::new(record_layer)),
+            inner: stream,
+            record_layer,
             read_buffer: Vec::new(),
             read_pos: 0,
             connected: true,
@@ -435,11 +433,8 @@ where
 
     /// Read application data (blocking)
     pub async fn read_app_data(&mut self) -> Result<Vec<u8>> {
-        let mut inner = self.inner.borrow_mut();
-        let mut record_layer = self.record_layer.borrow_mut();
-
         loop {
-            let (content_type, data) = record_layer.read_record(&mut *inner).await?;
+            let (content_type, data) = self.record_layer.read_record(&mut self.inner).await?;
 
             match content_type {
                 CONTENT_TYPE_APPLICATION_DATA => {
@@ -467,10 +462,8 @@ where
 
     /// Write application data (blocking)
     pub async fn write_app_data(&mut self, data: &[u8]) -> Result<()> {
-        let mut inner = self.inner.borrow_mut();
-        let mut record_layer = self.record_layer.borrow_mut();
-        record_layer
-            .write_record(&mut *inner, CONTENT_TYPE_APPLICATION_DATA, data)
+        self.record_layer
+            .write_record(&mut self.inner, CONTENT_TYPE_APPLICATION_DATA, data)
             .await
     }
 
@@ -478,10 +471,8 @@ where
     pub async fn close(&mut self) -> Result<()> {
         // Send close_notify alert
         let alert = [1, 0]; // warning, close_notify
-        let mut inner = self.inner.borrow_mut();
-        let mut record_layer = self.record_layer.borrow_mut();
-        record_layer
-            .write_record(&mut *inner, CONTENT_TYPE_ALERT, &alert)
+        self.record_layer
+            .write_record(&mut self.inner, CONTENT_TYPE_ALERT, &alert)
             .await?;
         self.connected = false;
         Ok(())
@@ -540,9 +531,7 @@ where
                     let body = &record_data[5..];
 
                     // Decrypt if cipher is active
-                    let mut record_layer = self.record_layer.borrow_mut();
-
-                    let (actual_type, plaintext) = if record_layer.has_read_cipher()
+                    let (actual_type, plaintext) = if self.record_layer.has_read_cipher()
                         && content_type == CONTENT_TYPE_APPLICATION_DATA
                     {
                         // Build header for AAD
@@ -555,7 +544,7 @@ where
                         ];
 
                         // Decrypt synchronously using the record layer's cipher
-                        match record_layer.decrypt_record_sync(&header, body) {
+                        match self.record_layer.decrypt_record_sync(&header, body) {
                             Ok((ct, pt)) => (ct, pt),
                             Err(e) => {
                                 return Poll::Ready(Err(io::Error::new(
@@ -567,8 +556,6 @@ where
                     } else {
                         (content_type, body.to_vec())
                     };
-
-                    drop(record_layer);
 
                     match actual_type {
                         CONTENT_TYPE_APPLICATION_DATA => {
@@ -614,15 +601,13 @@ where
 
             // Need more data from the underlying transport
             let mut temp = [0u8; 4096];
-            let mut inner = self.inner.borrow_mut();
 
-            match Pin::new(&mut *inner).poll_read(cx, &mut temp) {
+            match Pin::new(&mut self.inner).poll_read(cx, &mut temp) {
                 Poll::Ready(Ok(0)) => {
                     // EOF from underlying stream
                     return Poll::Ready(Ok(0));
                 }
                 Poll::Ready(Ok(n)) => {
-                    drop(inner);
                     trace!("TlsStream poll_read: got {} bytes from transport", n);
                     self.record_read_buffer.extend_from_slice(&temp[..n]);
                     // Continue loop to try parsing
@@ -649,22 +634,38 @@ where
     ) -> Poll<io::Result<usize>> {
         // First, flush any pending write buffer
         while !self.record_write_buffer.is_empty() {
-            let mut inner = self.inner.borrow_mut();
-            match Pin::new(&mut *inner).poll_write(cx, &self.record_write_buffer) {
-                Poll::Ready(Ok(n)) => {
-                    drop(inner);
-                    self.record_write_buffer.drain(..n);
+            // Use mem::take to avoid clone while satisfying borrow checker
+            let mut pending = std::mem::take(&mut self.record_write_buffer);
+            let poll = Pin::new(&mut self.inner).poll_write(cx, &pending);
+            match poll {
+                Poll::Ready(Ok(0)) => {
+                    self.record_write_buffer = pending;
+                    return Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::WriteZero,
+                        "write returned 0",
+                    )));
                 }
-                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Ok(n)) => {
+                    pending.drain(..n);
+                    self.record_write_buffer = pending;
+                }
+                Poll::Ready(Err(e)) => {
+                    self.record_write_buffer = pending;
+                    return Poll::Ready(Err(e));
+                }
+                Poll::Pending => {
+                    self.record_write_buffer = pending;
+                    return Poll::Pending;
+                }
             }
         }
 
         // Encrypt the new data and write it
-        let mut record_layer = self.record_layer.borrow_mut();
-
         // Encrypt using the record layer
-        let encrypted = match record_layer.encrypt_record_sync(CONTENT_TYPE_APPLICATION_DATA, buf) {
+        let encrypted = match self
+            .record_layer
+            .encrypt_record_sync(CONTENT_TYPE_APPLICATION_DATA, buf)
+        {
             Ok(data) => data,
             Err(e) => {
                 return Poll::Ready(Err(io::Error::new(
@@ -674,15 +675,11 @@ where
             }
         };
 
-        drop(record_layer);
-
         // Try to write the encrypted record
-        let mut inner = self.inner.borrow_mut();
-        match Pin::new(&mut *inner).poll_write(cx, &encrypted) {
+        match Pin::new(&mut self.inner).poll_write(cx, &encrypted) {
             Poll::Ready(Ok(n)) => {
                 if n < encrypted.len() {
                     // Partial write - buffer the rest
-                    drop(inner);
                     self.record_write_buffer.extend_from_slice(&encrypted[n..]);
                 }
                 // Report how many plaintext bytes were written
@@ -691,7 +688,6 @@ where
             Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
             Poll::Pending => {
                 // Buffer all for later
-                drop(inner);
                 self.record_write_buffer = encrypted;
                 Poll::Pending
             }
@@ -701,20 +697,34 @@ where
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         // Flush pending write buffer
         while !self.record_write_buffer.is_empty() {
-            let mut inner = self.inner.borrow_mut();
-            match Pin::new(&mut *inner).poll_write(cx, &self.record_write_buffer) {
-                Poll::Ready(Ok(n)) => {
-                    drop(inner);
-                    self.record_write_buffer.drain(..n);
+            // Use mem::take to avoid clone while satisfying borrow checker
+            let mut pending = std::mem::take(&mut self.record_write_buffer);
+            let poll = Pin::new(&mut self.inner).poll_write(cx, &pending);
+            match poll {
+                Poll::Ready(Ok(0)) => {
+                    self.record_write_buffer = pending;
+                    return Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::WriteZero,
+                        "write returned 0",
+                    )));
                 }
-                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Ok(n)) => {
+                    pending.drain(..n);
+                    self.record_write_buffer = pending;
+                }
+                Poll::Ready(Err(e)) => {
+                    self.record_write_buffer = pending;
+                    return Poll::Ready(Err(e));
+                }
+                Poll::Pending => {
+                    self.record_write_buffer = pending;
+                    return Poll::Pending;
+                }
             }
         }
 
         // Flush underlying stream
-        let mut inner = self.inner.borrow_mut();
-        Pin::new(&mut *inner).poll_flush(cx)
+        Pin::new(&mut self.inner).poll_flush(cx)
     }
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -725,8 +735,7 @@ where
         }
 
         self.connected = false;
-        let mut inner = self.inner.borrow_mut();
-        Pin::new(&mut *inner).poll_close(cx)
+        Pin::new(&mut self.inner).poll_close(cx)
     }
 }
 
@@ -767,7 +776,7 @@ where
                 Ok(to_copy)
             }
             Err(TlsError::ConnectionClosed) => Ok(0),
-            Err(e) => Err(io::Error::new(io::ErrorKind::Other, e.to_string())),
+            Err(e) => Err(io::Error::other(e.to_string())),
         }
     }
 
@@ -775,15 +784,14 @@ where
     pub async fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self.write_app_data(buf).await {
             Ok(()) => Ok(buf.len()),
-            Err(e) => Err(io::Error::new(io::ErrorKind::Other, e.to_string())),
+            Err(e) => Err(io::Error::other(e.to_string())),
         }
     }
 
     /// Flush the stream
     pub async fn flush(&mut self) -> io::Result<()> {
-        let mut inner = self.inner.borrow_mut();
         use futures::io::AsyncWriteExt;
-        inner.flush().await
+        self.inner.flush().await
     }
 }
 
