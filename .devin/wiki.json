@@ -43,6 +43,10 @@
     {
       "topic": "Build",
       "content": "Run ./build.sh for full WASM build. Use wasm-pack for individual crates. Native builds via cargo build. See AGENTS.md for specific commands. webtor-wasm/build.rs extracts dependency versions from Cargo.toml files at compile time."
+    },
+    {
+      "topic": "R2 CDN",
+      "content": "WASM artifacts are auto-published to Cloudflare R2 on each release. CDN URL: https://webtor-wasm.53627.org. Versioned: /webtor-wasm/v0.5.6/. Latest: /webtor-wasm/latest/. Files: webtor_wasm.js, webtor_wasm_bg.wasm, webtor_wasm.d.ts, package.json."
     }
   ],
   "pages": [

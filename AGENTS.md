@@ -94,12 +94,27 @@ Use `grep -rn "std::time::Instant\|coarsetime::Instant" vendor/arti/` to find vi
 - **Always bump the UI version** in `webtor-demo/static/index.html` (footer) on any UI-related changes
 - Current version format: `v0.X.Y`
 
+## R2 CDN
+
+WASM artifacts are automatically published to Cloudflare R2 on each release:
+
+- **CDN URL**: `https://webtor-wasm.53627.org`
+- **Versioned**: `https://webtor-wasm.53627.org/webtor-wasm/v0.5.6/`
+- **Latest**: `https://webtor-wasm.53627.org/webtor-wasm/latest/`
+
+Files available:
+- `webtor_wasm.js` - JavaScript bindings
+- `webtor_wasm_bg.wasm` - WASM binary
+- `webtor_wasm.d.ts` - TypeScript definitions
+- `package.json` - Package metadata
+
 ## Release Workflow
 
 - **NEVER release when CI is failing** - always verify all checks pass first
 - **Create a release after every PR merged** to this repo (only if CI passes)
 - **Every release must include a build artifact** (not just source code)
 - **Release notes must include the changelog** - copy the relevant section from CHANGELOG.md
+- **R2 upload is automatic** - triggered by the Release WASM workflow on tags
 - Steps:
   1. **Verify CI passes**: `gh pr view <PR> --json statusCheckRollup` or check GitHub Actions
   2. Update CHANGELOG.md (move Unreleased to new version)

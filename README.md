@@ -4,7 +4,7 @@
 [![Live Demo](https://img.shields.io/badge/Live_Demo-Try_it_now-purple)](https://igor53627.github.io/webtor-rs/)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/igor53627/webtor-rs)
 
-**Current Version**: v0.5.6 | **Arti**: 1.8.0 (tor-proto 0.37.0)
+**Current Version**: v0.5.7 | **Arti**: 1.8.0 (tor-proto 0.37.0)
 
 A browser-focused Tor client written in Rust and compiled to WebAssembly (WASM), with optional native support. It enables anonymous HTTP/HTTPS connections through the Tor network directly from web browsers, without requiring plugins, extensions, or native applications.
 
@@ -279,8 +279,35 @@ cd subtle-tls/fuzz && cargo +nightly fuzz run fuzz_server_hello
 | Property Tests | Push/PR | Proptest for turbo, smux, relay modules |
 | Fuzz Testing | Manual | Fuzz testing for TLS parsing |
 | WASM Build | Push/PR | Build and size check |
+| Release WASM | Tags | Build, optimize, publish to GitHub + R2 CDN |
 | Daily Consensus | Scheduled | Update cached consensus data |
 | Deploy Example | Push to main | Deploy demo to GitHub Pages |
+
+## CDN
+
+Pre-built `webtor-wasm` bindings are published to Cloudflare R2 on each release for use in your own projects:
+
+```html
+<!-- Use latest version -->
+<script type="module">
+  import init, { TorClient, TorClientOptions } from 'https://webtor-wasm.53627.org/webtor-wasm/latest/webtor_wasm.js';
+  
+  await init();
+  const client = await new TorClient(TorClientOptions.snowflakeWebRtc());
+  await client.waitForCircuit();
+  const response = await client.fetch('https://example.com');
+</script>
+
+<!-- Or pin to specific version -->
+<script type="module">
+  import init from 'https://webtor-wasm.53627.org/webtor-wasm/v0.5.6/webtor_wasm.js';
+</script>
+```
+
+Available files:
+- `webtor_wasm.js` - JavaScript bindings
+- `webtor_wasm_bg.wasm` - WASM binary (~1.2MB gzipped)
+- `webtor_wasm.d.ts` - TypeScript definitions
 
 ## License
 

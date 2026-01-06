@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-01-06
+
+### Added
+- CI: WASM releases now auto-upload to Cloudflare R2 CDN (https://webtor-wasm.53627.org)
+- Docs: Added R2 CDN documentation to README and AGENTS.md
+
+### Changed
+- Docs: Added CDN usage examples to README
+
 ## [0.5.6] - 2026-01-06
 
 ### Added
