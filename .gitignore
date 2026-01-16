@@ -1,6 +1,5 @@
 target/
 **/*.rs.bk
-vendor/
 node_modules/
 example/node_modules/
 example/dist/
