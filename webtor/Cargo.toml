@@ -59,7 +59,7 @@ web-sys = { workspace = true }
 wasm-bindgen = { workspace = true }
 js-sys = { workspace = true }
 httparse = "1.10.1"
-tor-checkable = "0.37.0"
+tor-checkable = { workspace = true }
 
 # KCP reliable transport
 kcp = { workspace = true }

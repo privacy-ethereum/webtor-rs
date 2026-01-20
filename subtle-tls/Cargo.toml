@@ -60,7 +60,7 @@ x25519-dalek = { version = "2.0", features = ["static_secrets"] }
 rand = "0.8"
 
 # Tor runtime compatibility traits
-tor-rtcompat = { version = "0.37.0", default-features = false }
+tor-rtcompat = { workspace = true }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
