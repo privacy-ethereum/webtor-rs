@@ -18,7 +18,7 @@ use tracing::{debug, error, info, warn};
 
 /// Base URL for cached consensus files (GitHub Pages)
 #[cfg(target_arch = "wasm32")]
-const CACHED_CONSENSUS_BASE_URL: &str = "https://igor53627.github.io/webtor-rs";
+const CACHED_CONSENSUS_BASE_URL: &str = "https://privacy-ethereum.github.io/webtor-rs";
 
 /// Directory manager for handling network documents
 pub struct DirectoryManager {

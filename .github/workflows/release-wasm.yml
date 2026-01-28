@@ -92,7 +92,7 @@ jobs:
           
           Download and extract to your project:
           ```bash
-          curl -L https://github.com/igor53627/webtor-rs/releases/download/${{ steps.version.outputs.version }}/webtor-wasm-${{ steps.version.outputs.version }}.tar.gz | tar xz -C ./vendor/webtor-wasm
+          curl -L https://github.com/privacy-ethereum/webtor-rs/releases/download/${{ steps.version.outputs.version }}/webtor-wasm-${{ steps.version.outputs.version }}.tar.gz | tar xz -C ./vendor/webtor-wasm
           ```
           
           ### Usage

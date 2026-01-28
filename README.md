@@ -1,7 +1,7 @@
 # webtor-rs
 
-[![CI](https://github.com/igor53627/webtor-rs/actions/workflows/test.yml/badge.svg)](https://github.com/igor53627/webtor-rs/actions/workflows/test.yml)
-[![Live Demo](https://img.shields.io/badge/Live_Demo-Try_it_now-purple)](https://igor53627.github.io/webtor-rs/)
+[![CI](https://github.com/privacy-ethereum/webtor-rs/actions/workflows/test.yml/badge.svg)](https://github.com/privacy-ethereum/webtor-rs/actions/workflows/test.yml)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Try_it_now-purple)](https://privacy-ethereum.github.io/webtor-rs/)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/igor53627/webtor-rs)
 
 **Current Version**: v0.5.7 | **Arti**: 1.8.0 (tor-proto 0.37.0)

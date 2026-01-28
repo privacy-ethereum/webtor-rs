@@ -132,5 +132,5 @@ Files available:
      ## Fixed
      - Bug fix 1
 
-     **Full Changelog**: https://github.com/igor53627/webtor-rs/compare/vPREV...vX.Y.Z" webtor-demo-vX.Y.Z.zip
+     **Full Changelog**: https://github.com/privacy-ethereum/webtor-rs/compare/vPREV...vX.Y.Z" webtor-demo-vX.Y.Z.zip
      ```

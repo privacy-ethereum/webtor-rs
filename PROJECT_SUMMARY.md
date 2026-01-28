@@ -376,4 +376,4 @@ cargo test -p webtor --test e2e test_webtunnel_https_request -- --ignored --noca
 
 **Project Status**: Active Development  
 **License**: MIT  
-**Repository**: https://github.com/igor53627/webtor-rs
+**Repository**: https://github.com/privacy-ethereum/webtor-rs
